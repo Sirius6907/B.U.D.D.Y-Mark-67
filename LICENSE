@@ -1,0 +1,38 @@
+SIRIUS PROPRIETARY & PERSONAL USE LICENSE
+Version 1.0, April 2026
+
+Copyright (c) 2026 Sirius. All rights reserved.
+
+1. DEFINITIONS
+
+"Software" refers to the B.U.D.D.Y-Mark-67 // PROTOCOL SIRIUS codebase, including all associated files, documentation, and assets.
+"Licensor" refers to Sirius, the original creator and owner of the Software.
+"User" refers to the individual or entity using the Software.
+
+2. GRANT OF LICENSE
+
+Subject to the terms and conditions of this License, Licensor hereby grants User a non-exclusive, non-transferable, personal license to use the Software for private, non-commercial purposes only.
+
+3. RESTRICTIONS
+
+The User shall NOT:
+a) Redistribute, sell, lease, or sub-license the Software or any part thereof.
+b) Use the Software for any commercial purpose or in a production environment for a business.
+c) Host the Software on public repositories or servers accessible by unauthorized third parties (excluding private forks or personal development environments).
+d) Remove or obscure any copyright notices, branding, or proprietary marks within the Software.
+e) Use the Software for any illegal or malicious activity.
+
+4. MODIFICATIONS
+
+Users are permitted to modify the Software for personal use. However, distribution of modified versions of the Software is strictly prohibited without explicit written consent from the Licensor.
+
+5. NO WARRANTY
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+6. TERMINATION
+
+This License is effective until terminated. The Licensor reserves the right to terminate this license at any time if the User fails to comply with any of the terms and conditions. Upon termination, the User must cease all use and destroy all copies of the Software.
+
+---
+By using this Software, you acknowledge that you have read this License and agree to be bound by its terms.

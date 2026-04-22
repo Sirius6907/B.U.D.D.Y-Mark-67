@@ -1,0 +1,40 @@
+{
+  "identity": {
+    "full_name": {
+      "value": "Chandan Kumar Behera",
+      "updated": "2026-04-20"
+    },
+    "nickname": {
+      "value": "Sirius",
+      "updated": "2026-04-20"
+    },
+    "university": {
+      "value": "Centurion University of Technology and Management, Bhubaneswar",
+      "updated": "2026-04-20"
+    }
+  },
+  "preferences": {},
+  "projects": {
+    "academic_status": {
+      "value": "B.Tech Computer Science, 8th semester",
+      "updated": "2026-04-20"
+    }
+  },
+  "relationships": {},
+  "wishes": {
+    "life_goal": {
+      "value": "Become first billionaire, famous, rich, and kind-hearted to change bloodline",
+      "updated": "2026-04-20"
+    },
+    "motivation": {
+      "value": "Fascination with tech, highly driven for success",
+      "updated": "2026-04-20"
+    }
+  },
+  "notes": {
+    "personal_context": {
+      "value": "Extremely introvert, overthinking, exhausted, fighting alone, no parental support, fears being average",
+      "updated": "2026-04-20"
+    }
+  }
+}

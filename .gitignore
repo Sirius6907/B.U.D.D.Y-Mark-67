@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.buddy_runtime/
+.venv/
+venv/
+dist/
+build/
+*.spec.bak
+memory/chroma_db/
+memory/memory.db
+config/api_keys.json
+tests/.tmp_verifier/
+pytest-cache-files-*/
+.env
