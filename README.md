@@ -10,6 +10,31 @@
 
 ---
 
+## 📂 Project Structure & Module Map
+
+Understanding the anatomy of Protocol Sirius is essential for customization.
+
+```text
+B.U.D.D.Y-Mark-67/
+├── actions/             # Modular tool definitions (Filesystem, System, Web)
+├── agent/               # Core logic (Kernel, Journaling, Planner)
+├── BUDDY-Mobile/        # React Native companion application
+│   ├── src/             # Mobile source code (Services, UI, Components)
+│   └── assets/          # Graphics and fonts
+├── config/              # System configuration and environment handling
+├── core/                # Low-level OS integrations (VLM, Screen, Input)
+├── docs/                # Extended documentation and research papers
+├── memory/              # RAG Engine (ChromaDB indexer, SQLite facts)
+├── scripts/             # Maintenance and build utilities
+├── tests/               # Unit and integration test suite
+├── voice/               # Audio orchestration (STT/TTS routing)
+├── main.py              # Application entry point
+├── ui.py                # Main desktop dashboard (PyQt6)
+└── requirements.txt     # Python dependency manifest
+```
+
+---
+
 ## 🌌 Core Capabilities
 
 - **👁️ VLM Autonomy**: Uses Gemini 2.5 Vision and local multimodal models to understand screen content semantically.
@@ -19,6 +44,36 @@
 - **🌐 Dynamic Browser**: Autonomous web research and workflow execution via a self-healing Playwright engine.
 - **🧑‍💻 Developer Nexus**: A full-scale coding agent capable of writing, executing, and debugging code in a local sandbox.
 - **📱 Telegram Bridge**: Full remote control of your OS via a secure, encrypted Telegram bot with voice support.
+- **📱 BUDDY-Mobile**: A high-fidelity companion app for iOS and Android featuring the "Neural Orb" interface.
+
+---
+
+## 📱 BUDDY-Mobile: The Peripheral Brain
+
+The mobile extension of SIRIUS is not just a remote control—it is a sensory node. Built with **React Native (Expo SDK 54)** and **NativeWind v5**, it provides a low-latency portal into your OS kernel from anywhere in the world.
+
+### ⚡ Technical Stack
+- **Engine**: React Native 0.81.5 (Turbo Modules enabled).
+- **Animation**: React Native Reanimated v4 (Alpha) with Worklets-Core.
+- **Graphics**: React Native Skia for the "Neural Orb" fluid dynamics.
+- **Communication**: Secure WebSocket + REST tunneling to the host machine.
+- **Sensory**: Integrated `expo-av` for high-bitrate voice capture and Sarvam AI bridging.
+
+### 🔮 The Neural Orb UI
+The interface centers around the "Neural Orb"—a Skia-rendered canvas that reacts in real-time to the agent's cognitive state.
+- **Idle**: Gentle breathing cycle (Sinusoidal opacity shift).
+- **Listening**: Pulsing high-frequency rings (Spring-physics based on mic amplitude).
+- **Thinking**: Chaotic orbit patterns (Perlin noise-based particle movement).
+- **Speaking**: Symmetrical wave vibrations.
+
+```mermaid
+graph TD
+    A[Mobile App] -->|Voice Buffer| B[Sarvam STT Bridge]
+    B -->|Transcript| C[Host Kernel]
+    C -->|Reasoning| D[Tool Dispatcher]
+    D -->|Status Update| E[Mobile UI]
+    E -->|Skia Render| F[Neural Orb Animation]
+```
 
 ---
 
@@ -83,6 +138,24 @@ sequenceDiagram
     V->>U: Playback + UI Sync
 ```
 
+### 4. Workflow Visualization: A Day in the Life
+How BUDDY handles a complex multi-stage task: "Check my email for meetings, add them to my calendar, and remind me via voice."
+
+```mermaid
+graph TD
+    Start[User Intent] --> A[Browser Action: Open Gmail]
+    A --> B[VLM Analysis: Find Meeting Emails]
+    B --> C[Memory: Extract Date/Time/Subject]
+    C --> D[System Action: Open Windows Calendar]
+    D --> E[Input Engine: Type Event Details]
+    E --> F[Verification: Screenshot Calendar]
+    F -->|Match?| G[Voice Engine: Confirm Success]
+    F -->|Mismatch?| A[Retry Logic]
+    G --> End[Task Complete]
+```
+
+---
+
 ---
 
 ## 🧠 Memory Engineering: The RAG Pipeline
@@ -145,6 +218,54 @@ The web engine is built on **Playwright**, but enhanced with autonomous logic th
 
 ---
 
+## 🛠️ Engineering Deep-Dive: The "Worklets Shim"
+
+During the development of Mark LXVII Mobile, we encountered a critical dependency conflict between `react-native-reanimated` v4 and the `react-native-worklets-core` architecture. Reanimated v4's Babel plugin explicitly expects the package name `react-native-worklets`, while the modern high-performance implementation is distributed as `react-native-worklets-core`.
+
+### The Solution: Virtual Aliasing & Directory Shimming
+To maintain zero-compromise performance while satisfying the legacy Babel requirements, we implemented a dual-layered resolution strategy:
+
+1.  **Package Alias**: Using `npm` aliasing to map `react-native-worklets` to the `core` package.
+2.  **Plugin Shim**: Manually constructing the expected directory structure in `node_modules` during the build phase to satisfy the hardcoded path resolution in `react-native-reanimated/plugin/index.js`.
+
+```json
+"dependencies": {
+  "react-native-worklets": "npm:react-native-worklets-core@^1.3.3"
+}
+```
+
+This engineering maneuver allows BUDDY to utilize the latest **C++ Turbo Modules** for animation while maintaining full compatibility with the Reanimated v4 alpha runtime.
+
+---
+
+## 🧬 Sensory Fusion & Vision Intelligence
+
+BUDDY's vision is not a simple screenshot-to-text pipeline. It uses **Temporal Frame Context** to understand movement and UI transitions.
+
+### 1. The Visual Buffer
+Instead of sending every frame to the VLM, the kernel maintains a circular buffer of the last 10 frames. When a command like "Wait for the download to finish" is given, the kernel performs **Frame Delta Analysis** to detect change without exhausting API tokens.
+
+### 2. Coordinate Grounding (The 1000-Point Grid)
+To ensure BUDDY works on any monitor (from 720p to 8K), all visual interactions use a normalized 1000x1000 grid.
+- **Top-Left**: `[0, 0]`
+- **Bottom-Right**: `[1000, 1000]`
+- **Scaling Logic**: `TargetX = (NormalizedX / 1000) * NativeScreenWidth`
+
+```mermaid
+flowchart TD
+    subgraph Host
+        S[Screen Capture] --> D[Delta Check]
+        D -->|Change Detected| V[VLM Inference]
+        V -->|Semantic Data| K[Kernel Planner]
+    end
+    subgraph Mobile
+        M[Touch Event] -->|Normalized Coords| K
+    end
+    K -->|Action| E[Interaction Engine]
+```
+
+---
+
 ## 📊 System Benchmarks (Representative)
 
 | Operation | Baseline (Standard Agent) | BUDDY Mark LXVII | Improvement |
@@ -189,6 +310,55 @@ copy .env.example .env
 - **DLL Load Failed**: If you see `ImportError: DLL load failed` for PyQt6, install the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe).
 - **Playwright Not Found**: Ensure you ran `playwright install`. If using a proxy, configure it in your `.env`.
 - **Microphone Not Detected**: Check Windows Privacy Settings -> Microphone -> Allow desktop apps to access your microphone.
+- **Metro Bundler Error (Mobile)**: If the mobile app fails to bundle due to `react-native-worklets` errors, run the `scripts/fix_mobile_deps.sh` utility included in the repo.
+
+---
+
+## ⚙️ The Master Configuration Guide
+
+BUDDY requires several API integrations to function at peak performance. Follow this guide to ensure all protocols are active.
+
+### 💎 Google Gemini (The Brain)
+1.  Visit the [Google AI Studio](https://aistudio.google.com/).
+2.  Generate an API Key for **Gemini 2.5 Flash** (or Pro).
+3.  Add to `.env` as `GOOGLE_API_KEY`.
+
+### 🎙️ Sarvam AI (The Voice)
+1.  Register at [Sarvam.ai](https://www.sarvam.ai/).
+2.  Obtain your API Key for the **Bulbul v3** and **Saarathi** models.
+3.  Add to `.env` as `SARVAM_API_KEY`.
+
+### 🤖 Telegram (Remote Control)
+1.  Message [@BotFather](https://t.me/botfather) on Telegram.
+2.  Create a new bot and copy the **API Token**.
+3.  Get your User ID from [@userinfobot](https://t.me/userinfobot).
+4.  Add to `.env` as `TELEGRAM_BOT_TOKEN` and `TELEGRAM_USER_ID`.
+
+### 📱 Expo (Mobile Build)
+To build your own APK/IPA:
+1.  Install the [EAS CLI](https://docs.expo.dev/build/setup/): `npm install -g eas-cli`.
+2.  Run `eas build --platform android --profile preview` for an APK.
+3.  Ensure your `app.json` has a unique `bundleIdentifier` and `package` name.
+
+---
+
+## 🛡️ Autonomous Recovery: The Self-Healing Kernel
+
+SIRIUS is designed to survive environment crashes. The **Watchdog Service** monitors the health of the WebSocket bridge and the Python interpreter.
+
+- **Process Persistence**: If the UI thread hangs, the Kernel daemon survives and attempts a hot-reload of the PyQt6 window.
+- **RAG Recovery**: If ChromaDB corruption is detected (e.g., due to sudden power loss), the system automatically performs an index rebuild using the file hashes stored in the SQLite shadow-db.
+- **Adaptive Fallback**: If the internet connection is unstable, the kernel automatically switches to "Local-First" mode, disabling cloud-based VLM and relying on local OCR and pre-cached knowledge.
+
+```mermaid
+graph LR
+    A[Monitor] -->|Heartbeat| B{State Healthy?}
+    B -->|No| C[Recovery Protocol]
+    C -->|Action| D[Restart Service]
+    C -->|Action| E[Rebuild Index]
+    C -->|Action| F[Switch Provider]
+    B -->|Yes| A
+```
 
 ---
 
@@ -281,6 +451,66 @@ BUDDY Mark LXVII is built on the principle of **Invisible Computing**. The inter
 - [ ] **Face Recognition**: Biometric login and personalized responses.
 - [ ] **Smart Home Nexus**: Direct control of IoT devices via Matter/Zigbee.
 - [ ] **Deep Code Audit**: Integration with static analysis tools for real-time security score.
+
+---
+
+---
+
+## 🧠 Cognitive Routing: The Hybrid Brain Architecture
+
+Mark LXVII utilizes a **Hybrid Brain** approach to balance the high reasoning of cloud-based VLMs with the low latency of local processing.
+
+### 1. The Fast Brain (Local)
+- **Engine**: Local OCR + Pattern Matching.
+- **Latency**: <50ms.
+- **Tasks**: Basic UI navigation, window switching, media control.
+
+### 2. The Deep Brain (Cloud)
+- **Engine**: Gemini 2.5 Pro / Flash.
+- **Latency**: 800ms - 2.5s.
+- **Tasks**: Complex reasoning, coding, visual analysis, strategic planning.
+
+### 3. The Sensory Bridge
+The sensory bridge coordinates between the two brains. If the Fast Brain detects a "Non-Deterministic" state (e.g., an unknown error message or a complex webpage layout), it automatically escalates the context to the Deep Brain.
+
+```mermaid
+graph TD
+    U[User Intent] --> R[Router]
+    R -->|Low Complexity| F[Fast Brain]
+    R -->|High Complexity| D[Deep Brain]
+    F -->|Ambiguity Detected| D
+    D -->|Refined Action| K[Kernel Execution]
+    F -->|Direct Action| K
+```
+
+---
+
+## 🛠️ Core Toolset & Action API
+
+SIRIUS ships with a modular action system. Each tool is a Python class that inherits from `BaseAction`.
+
+### 📂 `actions/filesystem.py`
+- `safe_write(path, content)`: Writes files with automatic backup and integrity checks.
+- `semantic_search(query)`: Queries the ChromaDB index for related files.
+
+### 🔌 `actions/system.py`
+- `get_battery_status()`: Monitors power levels and adjusts VLM frequency to conserve energy.
+- `shield_process(pid)`: Prevents external termination of critical components.
+
+### 🌐 `actions/web.py`
+- `autonomous_research(topic)`: Spawns a Playwright instance to summarize complex web topics.
+- `extract_structured_data(url, schema)`: Converts unstructured HTML into clean JSON.
+
+---
+
+## 📜 Protocol Sirius: Behavioral Guidelines
+
+To ensure stable and professional operation, BUDDY follows a strict set of behavioral protocols:
+
+1.  **Security First**: No tool can execute `rm -rf /` or equivalent destructive commands without explicit biometric (Mobile) or manual (Desktop) approval.
+2.  **Privacy by Design**: Personal data is never used for model training. The RAG index remains 100% local.
+3.  **Transparent Execution**: Every plan is logged to the `agent/journal.py` before execution, allowing the user to audit the agent's logic.
+4.  **Minimal Intrusion**: The UI only expands during interaction, maintaining a minimalist presence on the desktop.
 
 ---
 

@@ -1,0 +1,36 @@
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+@import "tailwindcss/utilities.css";
+
+@layer theme {
+  @theme {
+    /* Premium B.U.D.D.Y Theme */
+    --color-primary: #8b5cf6; /* Violet 500 */
+    --color-secondary: #06b6d4; /* Cyan 500 */
+    --color-background: #0f172a; /* Slate 900 */
+    --color-surface: rgba(30, 41, 59, 0.8); /* Slate 800 with 80% opacity */
+    
+    /* Glassmorphism tokens */
+    --glass-blur: 20px;
+    --glass-border: rgba(255, 255, 255, 0.1);
+  }
+}
+
+/* Platform-specific font families */
+@media android {
+  :root {
+    --font-mono: monospace;
+    --font-rounded: normal;
+    --font-serif: serif;
+    --font-sans: normal;
+  }
+}
+
+@media ios {
+  :root {
+    --font-mono: ui-monospace;
+    --font-serif: ui-serif;
+    --font-sans: system-ui;
+    --font-rounded: ui-rounded;
+  }
+}

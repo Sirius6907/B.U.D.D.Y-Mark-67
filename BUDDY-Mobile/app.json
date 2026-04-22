@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "BUDDY-Mobile",
+    "slug": "BUDDY-Mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.sirius.buddymobile",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "B.U.D.D.Y needs access to your microphone for voice commands.",
+        "NSCameraUsageDescription": "B.U.D.D.Y needs access to your camera for vision processing."
+      }
+    },
+    "android": {
+      "package": "com.sirius.buddymobile",
+      "permissions": [
+        "RECORD_AUDIO",
+        "CAMERA",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
