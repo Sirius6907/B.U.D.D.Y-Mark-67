@@ -4,6 +4,7 @@
 [![License](https://img.shields.io/badge/License-Sirius%20Proprietary-red.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![VLM](https://img.shields.io/badge/Intelligence-VLM%20%2B%20RAG-orange.svg)]()
+[![Build Status](https://img.shields.io/badge/Status-Stable-green.svg)]()
 
 **B.U.D.D.Y (Biometric Utility & Digital Desktop Yield) Mark LXVII** is a production-grade autonomous agent built to serve as a native OS kernel. Unlike traditional chatbots, SIRIUS/BUDDY possesses **Vision-Language Model (VLM) Autonomy**, allowing it to see, reason, and interact with any desktop application just like a human operator.
 
@@ -21,56 +22,125 @@
 
 ---
 
-## 📐 System Architecture
+## 🏗️ Deep Engineering & Architecture
 
-### Intelligence Workflow
+### 1. The Autonomous Intelligence Kernel
+The "Brain" of BUDDY is built on a non-linear planning architecture. Instead of simple instruction following, the kernel operates in an **Observe-Plan-Execute-Verify** loop.
+
 ```mermaid
 graph TD
-    User((User)) -->|Voice/Text| Orchestrator[Voice Orchestrator]
-    Orchestrator -->|Intent| Planner[Agent Planner]
-    Planner -->|Sub-Tasks| TaskQueue[Task Queue]
+    User((User)) -->|Instruction| Orchestrator[Voice/Text Orchestrator]
+    Orchestrator -->|Parsed Intent| Planner[Agent Planner - Gemini 2.5]
     
-    TaskQueue --> Executor[Executor Engine]
-    Executor -->|Vision| Screen[VLM Screen Processor]
-    Executor -->|RAG| Memory[Hybrid Memory Engine]
-    Executor -->|Action| Tools[System Tools / Actions]
+    subgraph "The Intelligence Loop"
+        Planner -->|Generate Plan| TaskQueue[Task Queue]
+        TaskQueue -->|Execute Step| Executor[Step Executor]
+        Executor -->|Visual Feedback| VLM[VLM Screen Analyzer]
+        VLM -->|State Update| Verifier[Step Verifier]
+        Verifier -->|Success/Failure| Planner
+        Verifier -->|Self-Correction| Planner
+    end
     
-    Memory -->|Vector| Chroma[ChromaDB Vector Store]
-    Memory -->|Structured| SQLite[(SQLite Facts)]
-    
-    Tools -->|Execute| OS[Windows OS Kernel]
-    OS -->|Result| Feedback[Step Verifier]
-    Feedback -->|Verify| Planner
+    Executor -->|Tool Use| System[System Tools]
+    System -->|Interact| OS[Windows OS Kernel]
 ```
 
-### RAG Strategy (Local Data Retrieval)
+### 2. VLM Semantic Vision Mapping
+BUDDY doesn't just see pixels; it understands the "Semantic DOM" of a Windows desktop. Using a combination of high-frequency screen captures and Gemini 2.5 Vision, the system maps UI elements to logical actions.
+
+- **Semantic Mapping**: Identifying that a "Red X" at the top right is a "Close Window" intent, regardless of the application.
+- **Visual Grounding**: Correlating coordinates with text labels discovered via OCR and semantic reasoning.
+- **Real-time Monitoring**: Detecting state changes (e.g., a loading spinner disappearing) to trigger the next execution step.
+
+### 3. Hybrid Memory Engine (RAG + SQLite)
+Memory is handled in three distinct layers to balance speed, precision, and long-term retention.
+
+| Memory Type | Implementation | Purpose |
+|---|---|---|
+| **Short-term** | In-memory Buffer | Current conversation context and task state. |
+| **Mid-term** | SQLite Database | Facts about the user, system settings, and task history. |
+| **Long-term (RAG)** | ChromaDB + Sentence Transformers | Semantic retrieval of local documents and codebase knowledge. |
+
 ```mermaid
 graph LR
-    Files[Local Files] -->|Extract| Text[Text Extractor]
-    Text -->|Chunk| Chunks[800char Overlap Chunks]
-    Chunks -->|Embed| Model[Sentence Transformers]
-    Model -->|Upsert| Vector[ChromaDB]
+    Input[New Information] --> Classify{Memory Type?}
+    Classify -->|Transient| Buffer[RAM Buffer]
+    Classify -->|Structured Fact| SQL[(SQLite Facts)]
+    Classify -->|Knowledge Data| RAG[ChromaDB Vector Store]
     
-    Query[User Query] -->|Embed| QueryVector[Query Vector]
-    QueryVector -->|Search| Vector
-    Vector -->|Context| Prompt[LLM Prompt]
+    Query[Search Query] -->|Hybrid Search| RAG
+    RAG -->|Similarity| Context[Top-K Context]
+    Context --> Planner
 ```
 
 ---
 
-## 🛠️ Technical Stack & Dependencies
+## 🧑‍💻 The Autonomous Developer Agent
+One of the most advanced subsystems in Mark LXVII is the **Autonomous Developer Engine**. It is designed to maintain itself and solve user-requested coding tasks.
 
-| Library | Role | Capability |
+### Self-Correction & Debugging Flow
+When BUDDY encounters a code error or is asked to implement a feature, it enters a "Sandbox Execution" mode.
+
+```mermaid
+sequenceDiagram
+    participant P as Planner
+    participant E as Code Executor
+    participant S as Sandbox (Subprocess)
+    participant V as Verifier (Pytest/Lint)
+    
+    P->>E: Draft Implementation
+    E->>S: Run Code / Tests
+    S-->>V: Execution Result / Logs
+    V->>V: Analyze Error Trace
+    V-->>P: Root Cause + Stack Trace
+    Note over P: Analyze & Refine
+    P->>E: Apply Fix (Iterate)
+```
+
+---
+
+## 🛡️ Security Framework: The Sirius Shield
+Security is integrated at the kernel level. BUDDY monitors its own environment and the host system.
+
+- **Process Shielding**: Monitors for unauthorized attempts to terminate BUDDY processes.
+- **Firewall Orchestration**: Dynamically opens/closes ports required for browser automation and remote control.
+- **System Audit**: Scans for vulnerabilities, open shares, and insecure configurations using integrated security scripts.
+- **Encrypted Vault**: All API keys and secrets are stored in an AES-256 encrypted vault, never exposed in logs or UI.
+
+---
+
+## 🎙️ Neural Voice Routing
+BUDDY uses a high-performance voice routing engine to ensure human-like interaction with zero perceived lag.
+
+- **Primary Route**: **Sarvam AI (Bulbul v3)** for ultra-fast, high-fidelity Indian-accented speech.
+- **Fallback Route**: **Gemini 2.5 TTS** for multilingual support and high-reliability backup.
+- **Voice-to-Task**: Real-time STT streaming that triggers the intent analyzer before the user even finishes speaking.
+
+---
+
+## 🌐 Dynamic Browser & Web Automation
+The web engine is built on **Playwright**, but enhanced with autonomous logic.
+
+- **Self-Healing Selectors**: If a button's ID changes, BUDDY uses semantic vision to find it by text, position, or icon.
+- **Cookie & Session Management**: Securely handles logins across multiple browsing sessions.
+- **Content Extraction**: Automatically strips ads and noise, extracting clean markdown for the LLM to process.
+
+---
+
+## 🛠️ Technical Stack & Library Roles
+
+| Library | Role | Why it's used |
 |---|---|---|
-| `google-genai` | **Cloud Brain** | Gemini 2.5 Flash for planning, vision, and fallback voice. |
-| `chromadb` | **Vector Storage** | Persistent vector database for RAG and long-term memory. |
-| `sentence-transformers` | **Embeddings** | Local generation of high-dimensional text vectors. |
-| `playwright` | **Web Engine** | Headless/Headful browser automation and scraping. |
-| `pywinauto` / `pyautogui` | **OS Control** | Direct manipulation of Windows GUI and inputs. |
-| `PyQt6` | **Dashboard** | High-performance hardware-accelerated UI. |
-| `sarvam` | **Neural Voice** | High-fidelity Indian-accented TTS and STT. |
-| `opencv-python` | **Vision** | Frame analysis and screen processing. |
-| `python-telegram-bot` | **Remote Link** | Secure mobile-to-desktop control bridge. |
+| `google-genai` | **Primary Brain** | State-of-the-art reasoning and vision capabilities. |
+| `chromadb` | **Vector DB** | Local-first, high-performance RAG storage. |
+| `sentence-transformers` | **Embedding Engine** | Generating vectors without cloud dependency. |
+| `playwright` | **Browser Kernel** | Industrial-grade web automation. |
+| `pywinauto` / `pyautogui` | **OS Interfacing** | Controlling the Windows desktop environment. |
+| `PyQt6` | **GUI Layer** | Hardware-accelerated, holographic dashboard. |
+| `sarvam` | **Neural Audio** | Best-in-class low-latency voice synthesis. |
+| `opencv-python` | **Computer Vision** | Low-level image processing and motion detection. |
+| `mss` | **Screen Grabber** | Ultra-fast cross-platform screenshot utility. |
+| `psutil` | **System Metrics** | Monitoring CPU, RAM, and network health. |
 
 ---
 
@@ -132,3 +202,8 @@ This project is licensed under the **Sirius Proprietary & Personal Use License**
 *Building the future of autonomous personal computing.*
 
 ⭐ **Star this repository if you believe in autonomous desktop agents.**
+
+---
+
+### 📡 Data Privacy Policy
+BUDDY is designed to be local-first. While cloud LLMs are used for high-level reasoning, your local documents indexed via RAG **never leave your machine**. Only specific snippets relevant to a query are sent to the LLM to provide context, ensuring maximum privacy for your personal data.
