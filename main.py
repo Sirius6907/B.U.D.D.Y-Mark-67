@@ -3,6 +3,7 @@ import io
 import re
 import threading
 import sys
+import time
 import traceback
 import wave
 from pathlib import Path
@@ -145,6 +146,9 @@ class BuddyLive:
         self._online_logged = False
         self.voice_settings = load_voice_settings()
         self.speech_router = self._create_speech_router()
+        self._is_awake = False
+        self._last_awake_time = 0.0
+        self.tts_muted = False
         
         # Phase 10: Elite Runtime Orchestrator
         self.orchestrator = VoiceOrchestrator(_get_api_key(), self.speak)
@@ -245,11 +249,12 @@ class BuddyLive:
                 # Sync response back to Telegram if authenticated
                 if getattr(self, "tg_bot", None) and getattr(self.tg_bot, "chat_id", None):
                     await self.tg_bot.send_text(text)
-                audio_bytes = await asyncio.to_thread(self.speech_router.synthesize, text)
-                if getattr(self, "tg_bot", None) and getattr(self.tg_bot, "chat_id", None):
-                    if self.tg_bot.tts_enabled and audio_bytes:
-                        await self.tg_bot.send_audio(audio_bytes)
-                await asyncio.to_thread(self._play_audio_bytes, audio_bytes)
+                if not getattr(self, "tts_muted", False):
+                    audio_bytes = await asyncio.to_thread(self.speech_router.synthesize, text)
+                    if getattr(self, "tg_bot", None) and getattr(self.tg_bot, "chat_id", None):
+                        if self.tg_bot.tts_enabled and audio_bytes:
+                            await self.tg_bot.send_audio(audio_bytes)
+                    await asyncio.to_thread(self._play_audio_bytes, audio_bytes)
             except Exception as exc:
                 logger.exception("Speech synthesis failed")
                 self.ui.write_log(f"ERR: speech synthesis failed — {exc}")
@@ -312,8 +317,50 @@ class BuddyLive:
                 self.ui.set_state("LISTENING")
             return
 
-        self.ui.write_log(f"You: {cleaned}")
-        await self.orchestrator.handle_user_command(cleaned)
+        lowered = cleaned.lower()
+        wake_words = ["hey buddy", "ok buddy", "okay buddy", "hey, buddy", "ok, buddy", "okay, buddy"]
+        
+        current_time = time.time()
+        if self._is_awake and (current_time - self._last_awake_time > 30.0):
+            self._is_awake = False
+            self.ui.write_log("SYS: Went back to sleep due to inactivity.")
+            
+        contains_wake_word = any(ww in lowered for ww in wake_words)
+
+        if not self._is_awake:
+            if not contains_wake_word:
+                logger.info("Wake word not detected. Ignoring utterance: %r", cleaned)
+                if not self.ui.muted:
+                    self.ui.set_state("LISTENING")
+                return
+                
+            self._is_awake = True
+            self._last_awake_time = current_time
+            self.ui.write_log("SYS: Buddy is AWAKE")
+            
+        else:
+            self._last_awake_time = current_time
+
+        # Strip wake word if present at the start of the sentence
+        command = cleaned
+        for ww in wake_words:
+            if command.lower().startswith(ww):
+                command = command[len(ww):].strip()
+                # Also strip any leading punctuation like commas "Hey buddy, what's up" -> ", what's up"
+                command = command.lstrip(" ,.!?").strip()
+                break
+                
+        import string
+        stripped_cmd = command.translate(str.maketrans('', '', string.punctuation)).strip()
+
+        if not stripped_cmd:
+            self.speak("Yes?")
+            if not self.ui.muted:
+                self.ui.set_state("LISTENING")
+            return
+
+        self.ui.write_log(f"You: {command}")
+        await self.orchestrator.handle_user_command(command)
 
     async def _process_microphone(self):
         if self.mic_queue is None:
@@ -547,15 +594,29 @@ def main():
         )
         ui.set_state("LISTENING")
         
-        # Global hotkey
-        def toggle_mute():
-            ui.set_muted(not ui.muted)
-            state = "MUTED" if ui.muted else "LISTENING"
-            ui.set_state(state)
-            logger.info(f"[BUDDY] Microphone {'MUTED' if ui.muted else 'ACTIVE'} via F4.")
-            print(f"[BUDDY] Microphone {'MUTED' if ui.muted else 'ACTIVE'}.")
+        # Global hotkeys
+        def toggle_listening():
+            if ui.muted:
+                ui.set_muted(False)
+                ui.set_state("LISTENING")
+                logger.info("[BUDDY] Microphone ACTIVE via F4.")
+                print("[BUDDY] Microphone ACTIVE.")
+            else:
+                ui.set_muted(True)
+                ui.set_state("MUTED")
+                logger.info("[BUDDY] Microphone MUTED via F4.")
+                print("[BUDDY] Microphone MUTED.")
+                buddy._is_awake = False
+
+        def toggle_tts():
+            buddy.tts_muted = not getattr(buddy, "tts_muted", False)
+            state_str = "MUTED" if buddy.tts_muted else "ACTIVE"
+            ui.write_log(f"SYS: TTS is now {state_str}")
+            logger.info(f"[BUDDY] TTS {state_str} via F3.")
+            print(f"[BUDDY] TTS {state_str}.")
             
-        keyboard.add_hotkey('f4', toggle_mute)
+        keyboard.add_hotkey('f4', toggle_listening)
+        keyboard.add_hotkey('f3', toggle_tts)
         
         try:
             asyncio.run(buddy.run())
