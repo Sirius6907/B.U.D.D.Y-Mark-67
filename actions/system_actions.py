@@ -1,10 +1,15 @@
 import asyncio
+import concurrent.futures
 import threading
 import sys
 import os
 import time
 
 from actions.base import Action, ActionRegistry
+from agent.personality import (
+    build_task_failed_reply,
+    build_shutdown_farewell,
+)
 from agent.task_queue import get_queue, TaskPriority
 from agent.kernel import kernel
 from memory.memory_manager import update_memory, search_local_files
@@ -34,16 +39,32 @@ class ShutdownBuddyAction(Action):
     def execute(self, parameters: dict, player=None, speak=None, **kwargs) -> str:
         if player:
             player.write_log("SYS: Shutdown requested.")
+        farewell = build_shutdown_farewell()
+        speech_future = None
         if speak:
-            speak("Goodbye, sir.")
+            speech_future = speak(farewell)
 
         def _shutdown():
-            time.sleep(1)
+            if isinstance(speech_future, concurrent.futures.Future):
+                try:
+                    speech_future.result(timeout=15)
+                except Exception:
+                    pass
+            else:
+                time.sleep(1)
+            try:
+                if player and hasattr(player, "bridge"):
+                    player.bridge.publish_shutdown_requested(farewell)
+            except Exception:
+                pass
+            time.sleep(1.8)
             try:
                 if player and hasattr(player, "root"):
                     player.root.quit()
             except Exception:
-                os._exit(0)
+                pass
+            time.sleep(4)
+            os._exit(0)
 
         threading.Thread(target=_shutdown, daemon=True).start()
         return "Shutting down."
@@ -124,13 +145,9 @@ class LocalTaskAction(Action):
     def execute(self, parameters: dict, player=None, speak=None, **kwargs) -> str:
         prompt = parameters.get("prompt", "")
         mode   = parameters.get("mode", "fast").lower()
-        loop = asyncio.get_event_loop()
+        loop = kernel.loop or asyncio.get_event_loop()
         
         if mode == "deep":
-            # Invoke deep synchronously by wrapping the coroutine in run_until_complete if it's executed synchronously
-            # Or instead, this execution happens in a separate thread. We should return a coroutine and have the caller handle it?
-            # Wait, our `Action.execute` is synchronous for the time being. Actually, in `main.py` they are run inside `await loop.run_in_executor(...)` so we can't `await` here unless we run it gracefully.
-            # But the orchestrator allows synchronous calls if we wrap it, or `main.py` allows it.
             future = asyncio.run_coroutine_threadsafe(kernel.models.invoke_deep(prompt), loop)
             return future.result()
         else:
@@ -165,12 +182,16 @@ class RuntimeOrchestratorAction(Action):
         plan = create_plan(goal)
         
         if orchestrator and hasattr(orchestrator, "runtime"):
-            loop = asyncio.get_event_loop()
+            loop = kernel.loop or asyncio.get_event_loop()
             future = asyncio.run_coroutine_threadsafe(orchestrator.runtime.execute_plan(plan), loop)
             success = future.result()
-            return f"Elite Task {'Completed' if success else 'Failed'}."
+            return (
+                "I handled that full workflow for you, Buddy."
+                if success
+                else build_task_failed_reply()
+            )
         else:
-            return "Orchestrator not available."
+            return "I could not reach the deeper runtime for that one, Buddy."
 
 class LocalKnowledgeSearchAction(Action):
     @property
@@ -239,7 +260,7 @@ class AgentTaskAction(Action):
         priority_map = {"low": TaskPriority.LOW, "normal": TaskPriority.NORMAL, "high": TaskPriority.HIGH}
         priority = priority_map.get(parameters.get("priority", "normal").lower(), TaskPriority.NORMAL)
         task_id  = get_queue().submit(goal=parameters.get("goal", ""), priority=priority, speak=speak)
-        return f"Task started (ID: {task_id})."
+        return f"I have started working on that for you, Buddy. Tracking ID: {task_id}."
 
 ActionRegistry.register(ShutdownBuddyAction)
 ActionRegistry.register(SaveMemoryAction)

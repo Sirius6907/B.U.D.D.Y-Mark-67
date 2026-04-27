@@ -1,11 +1,27 @@
+"""
+agent/planner.py — OPEV Task Planner
+=====================================
+Decomposes user goals into structured, risk-tiered execution plans
+using the Gemini API. Includes replanning for error recovery.
+
+Architecture:
+    create_plan()  → TaskPlan from user goal
+    replan()       → Revised TaskPlan after step failure
+    normalize_plan → Legacy dict → TaskNode converter
+"""
+from __future__ import annotations
+
 import json
 import re
 import sys
 import uuid
 from pathlib import Path
 
+from buddy_logging import get_logger
 from config import get_api_key
 from agent.models import TaskPlan, TaskNode, RiskTier
+
+logger = get_logger("agent.planner")
 
 
 def get_base_dir() -> Path:
@@ -14,16 +30,22 @@ def get_base_dir() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
-BASE_DIR        = get_base_dir()
+BASE_DIR = get_base_dir()
 
 
-TOOL_RISK_MAP = {
+# ── Risk Classification ──────────────────────────────────────────────────────
+
+TOOL_RISK_MAP: dict[str, RiskTier] = {
     "screen_process": RiskTier.TIER_0,
     "web_search": RiskTier.TIER_0,
     "weather_report": RiskTier.TIER_0,
     "open_app": RiskTier.TIER_1,
     "browser_control": RiskTier.TIER_1,
     "youtube_video": RiskTier.TIER_1,
+    "process_manager": RiskTier.TIER_1,
+    "bluetooth_manager": RiskTier.TIER_1,
+    "hardware_diagnostics": RiskTier.TIER_1,
+    "app_optimizer": RiskTier.TIER_1,
     "file_controller": RiskTier.TIER_2,
     "computer_control": RiskTier.TIER_2,
     "computer_settings": RiskTier.TIER_2,
@@ -31,23 +53,23 @@ TOOL_RISK_MAP = {
     "reminder": RiskTier.TIER_2,
     "antivirus_manager": RiskTier.TIER_2,
     "security_auditor": RiskTier.TIER_2,
-    "send_message": RiskTier.TIER_3,
-    "firewall_manager": RiskTier.TIER_3,
-    "privacy_manager": RiskTier.TIER_3,
-    "software_manager": RiskTier.TIER_3,
     "screen_recorder": RiskTier.TIER_2,
     "access_monitor": RiskTier.TIER_2,
     "network_security": RiskTier.TIER_2,
     "process_shield": RiskTier.TIER_2,
     "maintenance_manager": RiskTier.TIER_2,
-    "hardware_diagnostics": RiskTier.TIER_1,
-    "recovery_manager": RiskTier.TIER_3,
-    "app_optimizer": RiskTier.TIER_1,
     "backup_manager": RiskTier.TIER_2,
+    "send_message": RiskTier.TIER_1,
+    "firewall_manager": RiskTier.TIER_3,
+    "privacy_manager": RiskTier.TIER_3,
+    "software_manager": RiskTier.TIER_3,
+    "recovery_manager": RiskTier.TIER_3,
     "vault_manager": RiskTier.TIER_3,
     "privacy_hardener": RiskTier.TIER_3,
 }
 
+
+# ── System Prompt ─────────────────────────────────────────────────────────────
 
 PLANNER_PROMPT = """You are the planning module of BUDDY MARK LXVII, a personal AI assistant.
 Your job: break any user goal into a sequence of steps using ONLY the tools listed below.
@@ -64,6 +86,7 @@ AVAILABLE TOOLS AND THEIR PARAMETERS:
 
 open_app
   app_name: string (required)
+  run_as_admin: boolean (optional, default: false)
 
 web_search
   query: string (required) — write a clear, focused search query
@@ -113,6 +136,16 @@ send_message
   receiver: string (required)
   message_text: string (required)
   platform: string (required)
+
+process_manager
+  action: "list" | "info" | "kill_safe" | "top" (required)
+  name: string (optional)
+  count: string (optional)
+  sort_by: "cpu" | "memory" (optional)
+
+bluetooth_manager
+  action: "status" | "open_settings" | "toggle" | "connect_saved" | "pair_new" | "accept_pairing" (required)
+  device_name: string (optional)
 
 reminder
   date: string YYYY-MM-DD (required)
@@ -219,7 +252,7 @@ Steps:
 
 web_search | query: "mechanical engineering overview definition history"
 web_search | query: "mechanical engineering applications and future trends"
-file_controller | action: write, path: desktop, name: mechanical_engineering.txt, content: "MECHANICAL ENGINEERING RESEARCH\n\nThis file will be filled with web research results."
+file_controller | action: write, path: desktop, name: mechanical_engineering.txt, content: "MECHANICAL ENGINEERING RESEARCH\\n\\nThis file will be filled with web research results."
 
 Goal: "What is the price of Bitcoin"
 Steps:
@@ -275,7 +308,10 @@ def _get_api_key() -> str:
     return get_api_key(required=True)
 
 
+# ── Plan Normalization ────────────────────────────────────────────────────────
+
 def normalize_plan(plan: dict) -> list[TaskNode]:
+    """Convert a legacy plan dict (with 'steps') into a list of TaskNodes."""
     nodes: list[TaskNode] = []
     previous_id: str | None = None
 
@@ -299,46 +335,494 @@ def normalize_plan(plan: dict) -> list[TaskNode]:
     return nodes
 
 
-def create_plan(goal: str, context: str = "") -> TaskPlan:
-    from google import genai
-    from google.genai import types
+# ── Plan Creation ─────────────────────────────────────────────────────────────
 
-    client = genai.Client(api_key=_get_api_key())
+def _sanitize_generated_code_nodes(data: dict, goal: str) -> None:
+    """Replace any generated_code nodes with web_search fallback."""
+    for node in data.get("nodes", []):
+        if node.get("tool") == "generated_code":
+            node["tool"] = "web_search"
+            node["parameters"] = {"query": node.get("objective", goal)[:200]}
+            logger.warning(
+                "Sanitized generated_code node → web_search: %s",
+                node.get("objective", "")[:60],
+            )
+
+
+def _strip_markdown_fences(text: str) -> str:
+    """Remove markdown code block fences from LLM output."""
+    return re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
+
+
+def _extract_json_payload(text: str) -> dict:
+    """Extract the first valid JSON object from an LLM response."""
+    cleaned = _strip_markdown_fences(text)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = cleaned[start : end + 1]
+        return json.loads(candidate)
+
+    raise json.JSONDecodeError("No JSON object found", cleaned, 0)
+
+
+def _derive_youtube_query(goal: str) -> str:
+    quoted = re.findall(r'"([^"]+)"', goal)
+    if quoted:
+        return quoted[0].strip()
+
+    lowered = goal.lower()
+    for marker in ("play", "watch"):
+        if marker in lowered:
+            tail = goal[lowered.index(marker) + len(marker):].strip(" :.-")
+            if tail:
+                return tail.replace("video", "").strip(" \"'")
+    return goal
+
+
+def _extract_contact_name(goal: str) -> str:
+    patterns = [
+        r'contact name\s+([A-Za-z0-9_.-]+)',
+        r'to\s+([A-Z][A-Za-z0-9_.-]+)\s+then\s+message',
+        r'message\s+([A-Z][A-Za-z0-9_.-]+)\s+',
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, goal, re.IGNORECASE)
+        if match:
+            return match.group(1).strip(' "\'')
+    return ""
+
+
+def _extract_message_text(goal: str) -> str:
+    quoted = re.findall(r'"([^"]+)"', goal)
+    if quoted:
+        return quoted[-1].strip()
+
+    match = re.search(r'\bmessage\s+(?:him|her|them|[A-Za-z0-9_.-]+)\s+(.+)$', goal, re.IGNORECASE)
+    if match:
+        return match.group(1).strip(' "\'.')
+    return ""
+
+
+def _extract_app_name(goal: str) -> str:
+    patterns = [
+        r"(?:open|launch|start|run)\s+([a-zA-Z0-9 ._+-]+?)(?:\s+in\s+chrome|\s+as\s+admin|\s+as\s+administrator|$)",
+        r"run\s+([a-zA-Z0-9 ._+-]+?)\s+as\s+admin",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, goal, re.IGNORECASE)
+        if match:
+            app_name = match.group(1).strip(" .\"'")
+            if app_name:
+                return app_name
+    return ""
+
+
+def _extract_site_url(goal: str) -> str:
+    lowered = goal.lower()
+    if "whatsapp.web" in lowered:
+        return "https://web.whatsapp.com/"
+    match = re.search(r"\b([a-z0-9-]+\.(?:com|org|net|io|app|ai|dev|co))\b", lowered)
+    if match:
+        domain = match.group(1)
+        return f"https://{domain}"
+    return ""
+
+
+def _extract_device_name(goal: str) -> str:
+    patterns = [
+        r"device(?: named)?\s+([A-Za-z0-9 _.-]+)",
+        r"connect(?: to)?\s+([A-Za-z0-9 _.-]+)\s+(?:via )?bluetooth",
+        r"pair(?: with)?\s+([A-Za-z0-9 _.-]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, goal, re.IGNORECASE)
+        if match:
+            return match.group(1).strip(" .\"'")
+    return ""
+
+
+def _is_message_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    return any(platform in lowered for platform in ("whatsapp", "telegram", "signal", "discord", "messenger")) and "message" in lowered
+
+
+def _is_open_chat_goal(goal: str) -> bool:
+    lowered = goal.lower()
+    has_platform = any(platform in lowered for platform in ("whatsapp", "telegram", "signal", "discord", "messenger"))
+    has_chat_intent = any(token in lowered for token in ("open the chat", "open chat", "search for contact", "search contact", "find contact"))
+    return has_platform and has_chat_intent and "message " not in lowered
+
+
+def _is_direct_shutdown_goal(goal: str) -> bool:
+    normalized = " ".join(goal.strip().lower().split())
+    return normalized in {
+        "shutdown",
+        "shut down",
+        "buddy shutdown",
+        "shutdown buddy",
+        "turn yourself off",
+        "close buddy",
+        "exit buddy",
+        "stop buddy",
+    }
+
+
+def _build_fast_route_plan(goal: str) -> TaskPlan | None:
+    lowered = " ".join(goal.lower().split())
+
+    if "youtube" in lowered and ("play" in lowered or "watch" in lowered):
+        query = _derive_youtube_query(goal)
+        return TaskPlan(
+            plan_id=str(uuid.uuid4()),
+            goal=goal,
+            nodes=[
+                TaskNode(
+                    node_id="1",
+                    objective=f"Play {query} on YouTube",
+                    tool="youtube_video",
+                    parameters={"action": "play", "query": query},
+                    expected_outcome="Requested YouTube video is opened and playing",
+                    risk_tier=RiskTier.TIER_1,
+                )
+            ],
+            metadata={"route": "fast_path", "intent_family": "youtube_play"},
+        )
+
+    if _is_message_goal(goal):
+        receiver = _extract_contact_name(goal)
+        message_text = _extract_message_text(goal)
+        platform = (
+            "WhatsApp"
+            if "whatsapp" in lowered
+            else "Telegram"
+            if "telegram" in lowered
+            else "Signal"
+            if "signal" in lowered
+            else "Discord"
+            if "discord" in lowered
+            else "Messenger"
+        )
+        if receiver and message_text:
+            return TaskPlan(
+                plan_id=str(uuid.uuid4()),
+                goal=goal,
+                nodes=[
+                    TaskNode(
+                        node_id="1",
+                        objective=f"Send '{message_text}' to {receiver} via {platform}",
+                        tool="send_message",
+                        parameters={
+                            "receiver": receiver,
+                            "message_text": message_text,
+                            "platform": platform,
+                        },
+                        expected_outcome=f"Message is sent to {receiver} via {platform}",
+                        risk_tier=RiskTier.TIER_1,
+                    )
+                ],
+                metadata={"route": "fast_path", "intent_family": "message_send"},
+            )
+
+    if _is_open_chat_goal(goal):
+        receiver = _extract_contact_name(goal)
+        platform = (
+            "WhatsApp"
+            if "whatsapp" in lowered
+            else "Telegram"
+            if "telegram" in lowered
+            else "Signal"
+            if "signal" in lowered
+            else "Discord"
+            if "discord" in lowered
+            else "Messenger"
+        )
+        if receiver:
+            return TaskPlan(
+                plan_id=str(uuid.uuid4()),
+                goal=goal,
+                nodes=[
+                    TaskNode(
+                        node_id="1",
+                        objective=f"Open the chat for {receiver} in {platform}",
+                        tool="send_message",
+                        parameters={
+                            "receiver": receiver,
+                            "message_text": "",
+                            "platform": platform,
+                            "mode": "open_chat",
+                        },
+                        expected_outcome=f"The chat for {receiver} is opened in {platform}",
+                        risk_tier=RiskTier.TIER_1,
+                    )
+                ],
+                metadata={"route": "fast_path", "intent_family": "open_chat"},
+            )
+
+    if any(token in lowered for token in ("volume", "mute", "unmute")):
+        if "mute" in lowered or "unmute" in lowered:
+            action = "volume_mute"
+        else:
+            value_match = re.search(r"(\d{1,3})\s*%", lowered)
+            if value_match:
+                action = "volume_set"
+                value = max(0, min(100, int(value_match.group(1))))
+                params = {"action": action, "value": str(value)}
+            elif any(token in lowered for token in ("increase", "up", "raise", "higher")):
+                action = "volume_up"
+                params = {"action": action}
+            else:
+                action = "volume_down"
+                params = {"action": action}
+            return TaskPlan(
+                plan_id=str(uuid.uuid4()),
+                goal=goal,
+                nodes=[
+                    TaskNode(
+                        node_id="1",
+                        objective=f"Adjust system volume via {action}",
+                        tool="computer_settings",
+                        parameters=params,
+                        expected_outcome="System volume changes",
+                        risk_tier=RiskTier.TIER_1,
+                    )
+                ],
+                metadata={"route": "fast_path", "intent_family": "volume_control"},
+            )
+        return TaskPlan(
+            plan_id=str(uuid.uuid4()),
+            goal=goal,
+            nodes=[
+                TaskNode(
+                    node_id="1",
+                    objective="Toggle mute state",
+                    tool="computer_settings",
+                    parameters={"action": action},
+                    expected_outcome="Mute state changes",
+                    risk_tier=RiskTier.TIER_1,
+                )
+            ],
+            metadata={"route": "fast_path", "intent_family": "volume_control"},
+        )
+
+    if "brightness" in lowered:
+        value_match = re.search(r"(\d{1,3})\s*%", lowered)
+        if any(token in lowered for token in ("increase", "up", "raise", "higher")):
+            action = "brightness_up"
+        elif any(token in lowered for token in ("decrease", "down", "lower")):
+            action = "brightness_down"
+        elif value_match:
+            action = "brightness_up" if int(value_match.group(1)) >= 50 else "brightness_down"
+        else:
+            action = "brightness_up"
+        return TaskPlan(
+            plan_id=str(uuid.uuid4()),
+            goal=goal,
+            nodes=[
+                TaskNode(
+                    node_id="1",
+                    objective=f"Adjust display brightness via {action}",
+                    tool="computer_settings",
+                    parameters={"action": action},
+                    expected_outcome="Display brightness changes",
+                    risk_tier=RiskTier.TIER_1,
+                )
+            ],
+            metadata={"route": "fast_path", "intent_family": "brightness_control"},
+        )
+
+    if "bluetooth" in lowered:
+        if "pair" in lowered and "accept" in lowered:
+            action = "accept_pairing"
+        elif "pair" in lowered or "new device" in lowered:
+            action = "pair_new"
+        elif "connect" in lowered:
+            action = "connect_saved"
+        elif any(token in lowered for token in ("on", "off", "toggle")):
+            action = "toggle"
+        elif "settings" in lowered:
+            action = "open_settings"
+        else:
+            action = "status"
+        return TaskPlan(
+            plan_id=str(uuid.uuid4()),
+            goal=goal,
+            nodes=[
+                TaskNode(
+                    node_id="1",
+                    objective=f"Handle Bluetooth request via {action}",
+                    tool="bluetooth_manager",
+                    parameters={"action": action, "device_name": _extract_device_name(goal)},
+                    expected_outcome="Bluetooth request is handled",
+                    risk_tier=RiskTier.TIER_1 if action in {"status", "open_settings", "connect_saved", "pair_new", "accept_pairing"} else RiskTier.TIER_2,
+                )
+            ],
+            metadata={"route": "fast_path", "intent_family": "bluetooth_control"},
+        )
+
+    if "process" in lowered or "task manager" in lowered or "running app" in lowered:
+        if "task manager" in lowered:
+            return TaskPlan(
+                plan_id=str(uuid.uuid4()),
+                goal=goal,
+                nodes=[
+                    TaskNode(
+                        node_id="1",
+                        objective="Open Task Manager",
+                        tool="computer_settings",
+                        parameters={"action": "task_manager"},
+                        expected_outcome="Task Manager opens",
+                        risk_tier=RiskTier.TIER_1,
+                    )
+                ],
+                metadata={"route": "fast_path", "intent_family": "process_view"},
+            )
+        action = "top" if any(token in lowered for token in ("top", "highest", "cpu", "memory")) else "list"
+        params = {"action": action}
+        if action == "top":
+            params["sort_by"] = "cpu" if "cpu" in lowered else "memory"
+        return TaskPlan(
+            plan_id=str(uuid.uuid4()),
+            goal=goal,
+            nodes=[
+                TaskNode(
+                    node_id="1",
+                    objective="Inspect running processes",
+                    tool="process_manager",
+                    parameters=params,
+                    expected_outcome="Process list is returned",
+                    risk_tier=RiskTier.TIER_1,
+                )
+            ],
+            metadata={"route": "fast_path", "intent_family": "process_view"},
+        )
+
+    if re.search(r"\b(run|open|launch|start)\b", lowered):
+        site_url = _extract_site_url(goal)
+        if site_url:
+            return TaskPlan(
+                plan_id=str(uuid.uuid4()),
+                goal=goal,
+                nodes=[
+                    TaskNode(
+                        node_id="1",
+                        objective=f"Open {site_url} in the browser",
+                        tool="browser_control",
+                        parameters={"action": "go_to", "url": site_url},
+                        expected_outcome=f"{site_url} opens in the browser",
+                        risk_tier=RiskTier.TIER_1,
+                    )
+                ],
+                metadata={"route": "fast_path", "intent_family": "browser_open"},
+            )
+
+        app_name = _extract_app_name(goal)
+        if app_name:
+            run_as_admin = any(
+                phrase in lowered
+                for phrase in (
+                    "run as admin",
+                    "run as administrator",
+                    "as admin",
+                    "as administrator",
+                )
+            )
+            return TaskPlan(
+                plan_id=str(uuid.uuid4()),
+                goal=goal,
+                nodes=[
+                    TaskNode(
+                        node_id="1",
+                        objective=f"Open {app_name}" + (" as administrator" if run_as_admin else ""),
+                        tool="open_app",
+                        parameters={"app_name": app_name, "run_as_admin": run_as_admin},
+                        expected_outcome=f"{app_name} opens successfully",
+                        risk_tier=RiskTier.TIER_3 if run_as_admin else RiskTier.TIER_1,
+                    )
+                ],
+                metadata={"route": "fast_path", "intent_family": "open_app"},
+            )
+
+    return None
+
+
+def _direct_shutdown_plan(goal: str) -> TaskPlan:
+    return TaskPlan(
+        plan_id=str(uuid.uuid4()),
+        goal=goal,
+        nodes=[
+            TaskNode(
+                node_id="1",
+                objective="Shut down Buddy gracefully",
+                tool="shutdown_buddy",
+                parameters={},
+                expected_outcome="Buddy shuts down cleanly",
+                risk_tier=RiskTier.TIER_3,
+            )
+        ],
+    )
+
+
+def create_plan(goal: str, context: str = "") -> TaskPlan:
+    """Create a structured TaskPlan from a user goal with automatic fallback."""
+    from agent.llm_gateway import llm_generate
+
+    logger.info("Creating plan for: %s", goal[:80])
+
+    if _is_direct_shutdown_goal(goal):
+        logger.info("Using direct shutdown plan for: %s", goal[:80])
+        return _direct_shutdown_plan(goal)
 
     user_input = f"Goal: {goal}"
     if context:
         user_input += f"\n\nContext: {context}"
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=user_input,
-            config=types.GenerateContentConfig(
-                system_instruction=PLANNER_PROMPT
-            )
+        result = llm_generate(
+            prompt=user_input,
+            system=PLANNER_PROMPT,
+            gemini_model="gemini-2.5-flash",
         )
-        text     = response.text.strip()
-        text     = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
+        data = _extract_json_payload(result.text)
 
-        data = json.loads(text)
+        if "nodes" not in data and "steps" in data:
+            return TaskPlan(plan_id=str(uuid.uuid4()), goal=data.get("goal", goal), nodes=normalize_plan(data))
 
-        # Validation and cleanup
-        for node in data.get("nodes", []):
-            if node.get("tool") == "generated_code":
-                node["tool"] = "web_search"
-                node["parameters"] = {"query": node.get("objective", goal)[:200]}
+        # Security: never allow generated_code from LLM
+        _sanitize_generated_code_nodes(data, goal)
 
         plan = TaskPlan(**data)
-        print(f"[Planner] ✅ Plan created: {plan.plan_id} ({len(plan.nodes)} nodes)")
+        logger.info(
+            "Plan created: id=%s, nodes=%d, tools=[%s] (via %s)",
+            plan.plan_id,
+            len(plan.nodes),
+            ", ".join(n.tool for n in plan.nodes),
+            result.model,
+        )
         return plan
 
-    except Exception as e:
-        print(f"[Planner] ⚠️ Planning failed: {e}")
+    except json.JSONDecodeError as exc:
+        logger.error("Plan JSON parse failed: %s", exc)
+        return _fallback_plan(goal)
+    except Exception as exc:
+        logger.error("Planning failed: %s", exc)
         return _fallback_plan(goal)
 
 
+# ── Fallback Plan ─────────────────────────────────────────────────────────────
+
 def _fallback_plan(goal: str) -> TaskPlan:
-    print("[Planner] 🔄 Generating fallback plan")
+    """Generate a simple domain-aware fallback when planning fails."""
+    logger.info("Generating fallback plan for: %s", goal[:60])
+
+    if _is_direct_shutdown_goal(goal):
+        return _direct_shutdown_plan(goal)
+
     return TaskPlan(
         plan_id=str(uuid.uuid4()),
         goal=goal,
@@ -354,11 +838,23 @@ def _fallback_plan(goal: str) -> TaskPlan:
     )
 
 
-def replan(goal: str, completed_nodes: list[TaskNode], failed_node: TaskNode, error: str) -> TaskPlan:
-    from google import genai
-    from google.genai import types
+# ── Replanning ────────────────────────────────────────────────────────────────
 
-    client = genai.Client(api_key=_get_api_key())
+def replan(
+    goal: str,
+    completed_nodes: list[TaskNode],
+    failed_node: TaskNode,
+    error: str,
+) -> TaskPlan:
+    """Create a revised plan after a step failure with automatic fallback."""
+    from agent.llm_gateway import llm_generate
+
+    logger.info(
+        "Replanning after failure: node=%s, tool=%s, error=%s",
+        failed_node.node_id,
+        failed_node.tool,
+        error[:80],
+    )
 
     completed_summary = "\n".join(
         f"  - Node {n.node_id} ({n.tool}): DONE" for n in completed_nodes
@@ -375,25 +871,23 @@ Error: {error}
 Create a REVISED TaskPlan for the remaining work only. Do not repeat completed steps."""
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=PLANNER_PROMPT
-            )
+        result = llm_generate(
+            prompt=prompt,
+            system=PLANNER_PROMPT,
+            gemini_model="gemini-2.5-flash",
         )
-        text     = response.text.strip()
-        text     = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
-        data     = json.loads(text)
+        data = _extract_json_payload(result.text)
 
-        for node in data.get("nodes", []):
-            if node.get("tool") == "generated_code":
-                node["tool"] = "web_search"
-                node["parameters"] = {"query": node.get("objective", goal)[:200]}
+        _sanitize_generated_code_nodes(data, goal)
 
         plan = TaskPlan(**data)
-        print(f"[Planner] 🔄 Revised plan: {plan.plan_id} ({len(plan.nodes)} nodes)")
+        logger.info(
+            "Revised plan: id=%s, nodes=%d (via %s)",
+            plan.plan_id,
+            len(plan.nodes),
+            result.model,
+        )
         return plan
-    except Exception as e:
-        print(f"[Planner] ⚠️ Replan failed: {e}")
+    except Exception as exc:
+        logger.error("Replan failed: %s", exc)
         return _fallback_plan(goal)

@@ -1,5 +1,5 @@
 """
-Jarvis MK37 — Ship Readiness Check
+Buddy MK-67 — Ship Readiness Check
 Validates all critical dependencies, configurations, and system state
 before deployment. Use --json for machine-readable output.
 """
@@ -81,7 +81,7 @@ def _check_env_file() -> tuple[bool, str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Jarvis MK37 Ship Readiness Check")
+    parser = argparse.ArgumentParser(description="Buddy MK-67 Ship Readiness Check")
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
     args = parser.parse_args()
 
@@ -166,7 +166,7 @@ def main() -> int:
         print(json.dumps(output, indent=2))
     else:
         print("=" * 50)
-        print("  JARVIS MK37 — Ship Readiness Check")
+        print("  BUDDY MK-67 — Ship Readiness Check")
         print("=" * 50)
         for c in checks:
             icon = "✅" if c["ok"] else ("❌" if c["critical"] else "⚠️")

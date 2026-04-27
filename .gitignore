@@ -1,15 +1,57 @@
+# ── B.U.D.D.Y Mark LXVII — Git Ignore ─────────────────────────────────────
+
+# Python
 __pycache__/
 *.py[cod]
-.pytest_cache/
-.buddy_runtime/
-.venv/
-venv/
+*$py.class
+*.so
+*.egg-info/
 dist/
 build/
-*.spec.bak
-memory/chroma_db/
-memory/memory.db
-config/api_keys.json
-tests/.tmp_verifier/
-pytest-cache-files-*/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Runtime artifacts
+.buddy_runtime/
+*.log
+
+# Secrets — NEVER commit
 .env
+config/api_keys.json
+config/secrets.json
+
+# Memory databases
+memory/chroma_db/
+memory/*.db
+memory/*.sqlite
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# PyInstaller
+*.spec
+*.spec.bak
+
+# Test artifacts
+tests/.tmp_verifier/
+.pytest_cache/
+pytest-cache-files-*/
+htmlcov/
+.coverage
+
+# Web dashboard build artifacts
+node_modules/
+.next/

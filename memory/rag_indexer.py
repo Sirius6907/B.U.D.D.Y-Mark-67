@@ -9,6 +9,9 @@ import docx2txt
 
 from memory.embeddings import get_embedding_function
 from memory.memory_manager import LOCAL_FILES_COLLECTION
+from buddy_logging import get_logger
+
+logger = get_logger("memory.rag_indexer")
 
 embedding_func = get_embedding_function()
 
@@ -46,7 +49,7 @@ class RAGIndexer:
             elif ext == '.docx':
                 return docx2txt.process(file_path)
         except Exception as e:
-            print(f"[RAG] ❌ Failed to extract text from {file_path}: {e}")
+            logger.error(f"Failed to extract text from {file_path}: {e}", exc_info=True)
         return ""
 
     def _chunk_text(self, text: str, chunk_size=800, overlap=100) -> list[str]:
@@ -63,7 +66,7 @@ class RAGIndexer:
         return chunks
 
     def index_files(self):
-        print("[RAG] 🔍 Scanning local files for indexing...")
+        logger.info("Scanning local files for indexing...")
         for scan_dir in self.scan_dirs:
             if not scan_dir.exists():
                 continue
@@ -74,7 +77,7 @@ class RAGIndexer:
                         continue
                         
                     self._process_file(file_path)
-        print("[RAG] ✅ Indexing complete.")
+        logger.info("Indexing complete.")
 
     def _process_file(self, file_path: Path):
         file_id_base = str(file_path.absolute())
@@ -101,7 +104,7 @@ class RAGIndexer:
         if not chunks:
             return
 
-        print(f"[RAG] 📝 Indexing {file_path.name} ({len(chunks)} chunks)")
+        logger.info(f"Indexing {file_path.name} ({len(chunks)} chunks)")
 
         # Clear old chunks if any
         # We need to find all chunks for this file. IDs are file_path:chunk_index

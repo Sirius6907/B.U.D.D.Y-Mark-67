@@ -5,6 +5,11 @@ import subprocess
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
+from agent.personality import (
+    build_telegram_start_message,
+    build_tts_status_message,
+    build_tts_usage_message,
+)
 from config.runtime import load_config
 
 logger = logging.getLogger(__name__)
@@ -82,7 +87,7 @@ class TelegramBot:
         if not self._is_authorized(update):
             return
         self.chat_id = update.effective_chat.id
-        await update.message.reply_text("SIRIUS Agent online. Awaiting commands. Use /tts on to enable voice responses.")
+        await update.message.reply_text(build_telegram_start_message())
 
     async def _tts_cmd(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._is_authorized(update):
@@ -91,18 +96,18 @@ class TelegramBot:
         
         args = context.args
         if not args:
-            await update.message.reply_text(f"TTS is currently {'ON' if self.tts_enabled else 'OFF'}. Usage: /tts on | /tts off")
+            await update.message.reply_text(build_tts_status_message(self.tts_enabled))
             return
             
         arg = args[0].lower()
         if arg == "on":
             self.tts_enabled = True
-            await update.message.reply_text("TTS Audio responses enabled.")
+            await update.message.reply_text(build_tts_status_message(True))
         elif arg == "off":
             self.tts_enabled = False
-            await update.message.reply_text("TTS Audio responses disabled.")
+            await update.message.reply_text(build_tts_status_message(False))
         else:
-            await update.message.reply_text("Usage: /tts on | /tts off")
+            await update.message.reply_text(build_tts_usage_message())
 
     async def _handle_text(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._is_authorized(update):

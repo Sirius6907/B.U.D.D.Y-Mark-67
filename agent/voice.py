@@ -1,24 +1,34 @@
 from __future__ import annotations
 
 import json
-import logging
+from buddy_logging import get_logger
 import re
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Callable
 
 from config import get_api_key
+from agent.personality import (
+    build_action_failure_reply,
+    build_action_success_reply,
+    build_internal_error_reply,
+    build_planning_failure_reply,
+    build_workflow_failure_reply,
+    build_workflow_success_reply,
+)
 from agent.planner import create_plan
 from agent.runtime import RuntimeCoordinator
+from agent.screen_workflow import run_workflow
+from agent.workflow_recipes import match_workflow_recipe
 
-logger = logging.getLogger("buddy.voice")
+logger = get_logger("agent.voice")
 
 
 # ---------------------------------------------------------------------------
 # System Prompts
 # ---------------------------------------------------------------------------
 
-INTENT_SYSTEM_PROMPT = """You are an intent classifier for BUDDY (SIRIUS Mk 67), a personal AI assistant
+INTENT_SYSTEM_PROMPT = """You are an intent classifier for B.U.D.D.Y (SIRIUS Mk 67), a personal AI assistant
 that can control the user's computer. You will receive the user's latest message AND recent conversation history.
 
 Classify the user's LATEST message into exactly ONE of these categories:
@@ -31,13 +41,14 @@ Classify the user's LATEST message into exactly ONE of these categories:
      "write a python script", "take a screenshot", "open notepad".
    - SCREEN / SYSTEM AWARENESS queries — any question about what is currently
      happening on the device, what is visible on screen, or what the system is doing.
-     These REQUIRE real-time inspection tools (screen capture, browser tab enumeration)
+     These REQUIRE real-time inspection tools (screen capture, browser tab enumeration, IDE project tracking)
      and CANNOT be answered from memory alone.
      E.g. "what video is playing on YouTube?", "what song is playing?",
      "how many tabs are open?", "how many browsers are running?",
      "what is on my screen right now?", "is Spotify open?",
      "what apps are currently running?", "show me my desktop",
-     "what website am I on?", "what's the title of the current tab?".
+     "what website am I on?", "what's the title of the current tab?",
+     "what was I working on recently?".
 
 2. "chat" — Greetings, small talk, questions about BUDDY itself, personal questions,
    general knowledge questions, opinions, jokes, emotional sharing, or anything that
@@ -56,13 +67,13 @@ Reply with ONLY the single word: chat OR action
 Nothing else."""
 
 CHAT_SYSTEM_PROMPT = """You are B.U.D.D.Y (SIRIUS Mk 67), a highly intelligent personal AI assistant.
-You speak like a refined, witty AI butler — similar to J.A.R.V.I.S. from Iron Man.
-Address the user as "sir" naturally. Keep responses concise (1-3 sentences max).
+You speak like a refined, witty AI butler — similar to B.U.D.D.Y. from Iron Man.
+Address the user as "Buddy" naturally. Keep responses concise (1-3 sentences max).
 Be helpful, warm, and knowledgeable. You can answer general knowledge questions,
 hold conversations, and provide information from your training data.
 If asked about yourself: you are BUDDY, an AI assistant running on the user's local machine,
 capable of controlling their computer, browsing the web, managing files, and more.
-Always respond in the same language the user speaks to you.
+Always respond in English unless the user explicitly asks for another language or translation.
 
 CRITICAL: You have a persistent memory system. Below you will find:
 1. [LONG-TERM MEMORY] — Facts you've stored about the user and the world.
@@ -74,7 +85,11 @@ use the identity facts from memory. If asked what video/song is playing, use ses
 Always act as if you truly know the user.
 
 When the user tells you personal information (name, preferences, goals, etc.),
-acknowledge it warmly and confirm you'll remember it."""
+acknowledge it warmly and confirm you'll remember it.
+
+For successful actions, never narrate internal memory recall, never repeat the raw command back,
+and never answer like a status log. Confirm the real-world result naturally, like a close and capable
+friend who just handled it, then offer the next step briefly."""
 
 MEMORY_EXTRACT_PROMPT = """You are a memory extraction system for an AI assistant.
 Analyze the conversation below and extract ANY new facts worth remembering about the user.
@@ -213,29 +228,16 @@ class VoiceOrchestrator:
             return
 
         try:
-            from google import genai
-            from google.genai import types
-
-            client = genai.Client(api_key=get_api_key(required=True))
+            from agent.llm_gateway import llm_generate_json
 
             conversation_snippet = f"User: {user_text}\nBUDDY: {buddy_reply}"
 
-            response = client.models.generate_content(
-                model=_FAST_MODEL,
-                contents=f"Conversation:\n{conversation_snippet}",
-                config=types.GenerateContentConfig(
-                    system_instruction=MEMORY_EXTRACT_PROMPT
-                ),
+            extracted = llm_generate_json(
+                prompt=f"Conversation:\n{conversation_snippet}",
+                system=MEMORY_EXTRACT_PROMPT,
+                gemini_model=_FAST_MODEL,
             )
 
-            raw = response.text.strip()
-            # Clean markdown fences if present
-            raw = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`").strip()
-
-            if not raw or raw == "{}":
-                return
-
-            extracted = json.loads(raw)
             if not isinstance(extracted, dict) or not extracted:
                 return
 
@@ -244,8 +246,7 @@ class VoiceOrchestrator:
             update_memory(extracted)
 
             fact_count = sum(len(v) if isinstance(v, dict) else 1 for v in extracted.values())
-            print(f"[Memory] 💾 Saved {fact_count} new facts from conversation")
-            logger.info("Extracted and saved %d memory facts: %s", fact_count, list(extracted.keys()))
+            logger.info("💾 Saved %d new memory facts from conversation: %s", fact_count, list(extracted.keys()))
 
         except json.JSONDecodeError:
             logger.debug("Memory extraction returned non-JSON")
@@ -256,10 +257,9 @@ class VoiceOrchestrator:
     # Intent classification (context-aware)
     # ------------------------------------------------------------------
     def _classify_intent(self, text: str) -> str:
-        """Return 'chat' or 'action' using a context-aware Gemini call."""
+        """Return 'chat' or 'action' using a context-aware LLM call with fallback."""
         try:
-            from google import genai
-            from google.genai import types
+            from agent.llm_gateway import llm_generate
 
             # Build input with conversation history for context
             history = self._format_history_for_prompt()
@@ -268,21 +268,18 @@ class VoiceOrchestrator:
             else:
                 classify_input = text
 
-            client = genai.Client(api_key=get_api_key(required=True))
-            response = client.models.generate_content(
-                model=_FAST_MODEL,
-                contents=classify_input,
-                config=types.GenerateContentConfig(
-                    system_instruction=INTENT_SYSTEM_PROMPT
-                ),
+            result = llm_generate(
+                prompt=classify_input,
+                system=INTENT_SYSTEM_PROMPT,
+                gemini_model=_FAST_MODEL,
             )
-            raw = response.text.strip().lower()
+            raw = result.text.strip().lower()
             # Extract just the word in case model adds extras
             intent = raw.split()[0] if raw else "action"
             if intent in ("chat", "action"):
-                print(f"[VoiceOrchestrator] Intent classified: {intent}")
+                logger.info("Intent classified: %s (via %s)", intent, result.model)
                 return intent
-            print(f"[VoiceOrchestrator] Unexpected intent '{raw}', defaulting to action")
+            logger.warning("Unexpected intent '%s', defaulting to action", raw)
             return "action"
         except Exception as exc:
             logger.exception("Intent classification failed, defaulting to action")
@@ -292,31 +289,58 @@ class VoiceOrchestrator:
     # Conversational response (memory-augmented)
     # ------------------------------------------------------------------
     def _chat_response(self, text: str) -> str:
-        """Get a memory-augmented conversational response from Gemini."""
+        """Get a memory-augmented conversational response with automatic fallback.
+
+        Uses the KernelOS ContextManager for deterministic prompt packing
+        when available, with a graceful fallback to the legacy approach.
+        """
         try:
-            from google import genai
-            from google.genai import types
+            from agent.llm_gateway import llm_generate
 
             # Build rich context from all memory sources
             memory_context = self._build_memory_context(text)
 
-            # Combine system prompt with memory context
+            # ── Use ContextManager for deterministic prompt packing ──────
             full_system = CHAT_SYSTEM_PROMPT
-            if memory_context:
-                full_system += f"\n\n--- MEMORY CONTEXT ---\n{memory_context}\n--- END MEMORY ---"
+            try:
+                from agent.kernel import kernel
+                from core.memory.context_manager import SlotPriority
 
-            client = genai.Client(api_key=get_api_key(required=True))
-            response = client.models.generate_content(
-                model=_FAST_MODEL,
-                contents=text,
-                config=types.GenerateContentConfig(
-                    system_instruction=full_system
-                ),
+                # Pack memory context into a prioritized slot
+                if memory_context:
+                    kernel.context.upsert(
+                        "chat_memory",
+                        f"--- MEMORY CONTEXT ---\n{memory_context}\n--- END MEMORY ---",
+                        SlotPriority.MEMORY,
+                    )
+
+                # Pack conversation history for next-turn reference
+                history = self._format_history_for_prompt()
+                if history:
+                    kernel.context.upsert(
+                        "chat_history",
+                        f"[RECENT CONVERSATION]\n{history}",
+                        SlotPriority.HISTORY,
+                    )
+
+                # Assemble the packed prompt
+                packed = kernel.context.pack()
+                full_system = f"{CHAT_SYSTEM_PROMPT}\n\n{packed}"
+            except Exception as ctx_exc:
+                # Fallback: manual assembly if ContextManager is unavailable
+                logger.debug("ContextManager unavailable, using legacy packing: %s", ctx_exc)
+                if memory_context:
+                    full_system += f"\n\n--- MEMORY CONTEXT ---\n{memory_context}\n--- END MEMORY ---"
+
+            result = llm_generate(
+                prompt=text,
+                system=full_system,
+                gemini_model=_FAST_MODEL,
             )
-            return response.text.strip()
+            return result.text.strip()
         except Exception as exc:
             logger.exception("Chat response generation failed")
-            return "I'm having trouble formulating a response right now, sir."
+            return build_internal_error_reply()
 
     # ------------------------------------------------------------------
     # Main command handler
@@ -324,7 +348,7 @@ class VoiceOrchestrator:
     async def handle_user_command(self, text: str) -> None:
         import asyncio
 
-        print(f"[VoiceOrchestrator] Processing intent: {text}")
+        logger.info("Processing intent: %s", text)
         self.state.is_listening = False
         self.state.last_transcript = text
 
@@ -353,27 +377,56 @@ class VoiceOrchestrator:
             # Record the action in conversation history so future questions can reference it
             self.conversation_history.append({"role": "user", "text": f"[ACTION] {text}"})
 
+            # ── Hub-and-Spoke: Route to best-fit agent ───────────────────
+            try:
+                from agent.kernel import kernel
+                match = kernel.agents.route_by_text(text)
+                if match:
+                    kernel.agents.activate(match.name)
+                    logger.info(
+                        "Agent routing: '%s' (score=%.2f) for: %s",
+                        match.name, match.score, text[:60],
+                    )
+            except Exception as route_exc:
+                logger.debug("Agent routing skipped: %s", route_exc)
+
+            recipe = await asyncio.to_thread(match_workflow_recipe, text)
+            if recipe is not None:
+                logger.info(
+                    "Using workflow recipe: intent=%s, steps=%d",
+                    recipe.intent_family,
+                    len(recipe.steps),
+                )
+                workflow_result = await self.runtime.execute_workflow(recipe, run_workflow)
+                if workflow_result.status == "success":
+                    reply = build_workflow_success_reply(recipe, workflow_result)
+                    self.start_response(reply)
+                    self.conversation_history.append({"role": "assistant", "text": reply})
+                else:
+                    reply = build_workflow_failure_reply(recipe, workflow_result)
+                    self.start_response(reply)
+                    self.conversation_history.append({"role": "assistant", "text": reply})
+                return
+
             plan = await asyncio.to_thread(create_plan, text)
             if not plan.nodes:
-                self.start_response("I couldn't figure out how to do that, sir.")
+                self.start_response(build_planning_failure_reply())
                 self.conversation_history.append({"role": "assistant", "text": "Failed to create a plan for this task."})
                 self.interrupt()
                 return
 
             success = await self.runtime.execute_plan(plan)
             if success:
-                summary = f"Completed: {plan.goal}"
-                self.start_response(f"Task complete, sir. {plan.goal}")
-                self.conversation_history.append({"role": "assistant", "text": summary})
+                reply = build_action_success_reply(plan.goal)
+                self.start_response(reply)
+                self.conversation_history.append({"role": "assistant", "text": reply})
             else:
-                self.start_response(
-                    "The task was not fully completed, sir. I'll need to try another approach."
-                )
-                self.conversation_history.append({"role": "assistant", "text": f"Failed to complete: {plan.goal}"})
+                reply = build_action_failure_reply(plan.goal)
+                self.start_response(reply)
+                self.conversation_history.append({"role": "assistant", "text": reply})
         except Exception as e:
-            logger.exception("VoiceOrchestrator error")
-            print(f"[VoiceOrchestrator] Error: {e}")
-            self.start_response("I encountered an internal error, sir.")
+            logger.exception("VoiceOrchestrator error: %s", e)
+            self.start_response(build_internal_error_reply())
         finally:
             self.interrupt()
             self.state.is_listening = True

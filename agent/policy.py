@@ -28,9 +28,6 @@ class PolicyCheck:
 
 
 def _requires_sensitive_approval(node: TaskNode) -> bool:
-    if node.tool == "send_message":
-        return True
-
     if node.tool == "computer_control" and str(node.parameters.get("action", "")).lower() in {
         "shutdown",
         "restart",
@@ -72,6 +69,17 @@ def _requires_sensitive_approval(node: TaskNode) -> bool:
 
     if node.tool == "firewall_manager" and str(node.parameters.get("action", "")).lower() in {
         "lockdown",
+    }:
+        return True
+
+    if node.tool == "open_app" and bool(node.parameters.get("run_as_admin")):
+        return True
+
+    if node.tool == "send_message" and str(node.parameters.get("mode", "send")).lower() != "open_chat":
+        return True
+
+    if node.tool == "bluetooth_manager" and str(node.parameters.get("action", "")).lower() in {
+        "toggle",
     }:
         return True
 

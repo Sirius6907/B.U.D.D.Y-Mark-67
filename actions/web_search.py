@@ -98,6 +98,7 @@ def web_search(
     response=None,
     player=None,
     session_memory=None,
+    speak=None,
 ) -> str:
     params = parameters or {}
     query  = params.get("query", "").strip()

@@ -6,16 +6,18 @@ import sys
 import traceback
 import wave
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import sounddevice as sd
 import keyboard
 from google import genai
 from google.genai import types
-from ui import BuddyUI
+from dashboard_v2.ui_facade import BuddyUI
 from core.async_queues import enqueue_latest
 from core.console import configure_console_output
 from agent.kernel import kernel
+from agent.personality import build_boot_greeting, build_shutdown_farewell, build_tool_error_reply
 from agent.voice import VoiceOrchestrator
 from agent.runtime import RuntimeCoordinator
 from app_bootstrap import bootstrap_application
@@ -139,6 +141,8 @@ class BuddyLive:
         self.mic_queue: asyncio.Queue[bytes] | None = None
         self.ui.on_text_command = self._on_text_command
         self._kernel_initialized = False
+        self._startup_greeted = False
+        self._online_logged = False
         self.voice_settings = load_voice_settings()
         self.speech_router = self._create_speech_router()
         
@@ -214,12 +218,13 @@ class BuddyLive:
 
     def speak(self, text: str):
         if not self._loop:
-            return
+            return None
         future = asyncio.run_coroutine_threadsafe(
             self._speak_async(text),
             self._loop
         )
         future.add_done_callback(self._on_speak_done)
+        return future
 
     @staticmethod
     def _on_speak_done(future):
@@ -237,14 +242,13 @@ class BuddyLive:
             self.ui.write_log(f"Buddy: {text}")
             self.set_speaking(True)
             try:
-                audio_bytes = await asyncio.to_thread(self.speech_router.synthesize, text)
-                
                 # Sync response back to Telegram if authenticated
                 if getattr(self, "tg_bot", None) and getattr(self.tg_bot, "chat_id", None):
                     await self.tg_bot.send_text(text)
+                audio_bytes = await asyncio.to_thread(self.speech_router.synthesize, text)
+                if getattr(self, "tg_bot", None) and getattr(self.tg_bot, "chat_id", None):
                     if self.tg_bot.tts_enabled and audio_bytes:
                         await self.tg_bot.send_audio(audio_bytes)
-                        
                 await asyncio.to_thread(self._play_audio_bytes, audio_bytes)
             except Exception as exc:
                 logger.exception("Speech synthesis failed")
@@ -255,7 +259,7 @@ class BuddyLive:
     def speak_error(self, tool_name: str, error: str):
         short = str(error)[:120]
         self.ui.write_log(f"ERR: {tool_name} — {short}")
-        self.speak(f"Sir, {tool_name} encountered an error. {short}")
+        self.speak(build_tool_error_reply(tool_name, short))
 
     def _play_audio_bytes(self, audio_bytes: bytes) -> None:
         if not audio_bytes:
@@ -363,11 +367,12 @@ class BuddyLive:
         mem_str    = format_memory_for_prompt(memory)
         sys_prompt = _load_system_prompt()
 
-        now      = datetime.now()
+        now      = datetime.now(ZoneInfo("Asia/Kolkata"))
         time_str = now.strftime("%A, %B %d, %Y — %I:%M %p")
         time_ctx = (
             f"[CURRENT DATE & TIME]\n"
             f"Right now it is: {time_str}\n"
+            f"Timezone: Asia/Kolkata\n"
             f"Use this to calculate exact times for reminders.\n\n"
         )
 
@@ -497,7 +502,17 @@ class BuddyLive:
                 async with asyncio.TaskGroup() as tg:
                     print("[BUDDY] ✅ Local voice pipeline ready.")
                     self.ui.set_state("LISTENING")
-                    self.ui.write_log("SYS: BUDDY online.")
+                    if not self._online_logged:
+                        self._online_logged = True
+                        self.ui.write_log("SYS: BUDDY online.")
+                    if not self._startup_greeted:
+                        if hasattr(self.ui, "wait_for_boot_sequence"):
+                            try:
+                                self.ui.wait_for_boot_sequence(timeout=12)
+                            except Exception:
+                                pass
+                        self._startup_greeted = True
+                        self.speak(build_boot_greeting())
 
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._process_microphone())
@@ -522,10 +537,19 @@ def main():
     def runner():
         ui.wait_for_api_key()
         buddy = BuddyLive(ui)
+        ui.update_runtime_status(
+            {
+                "configReady": True,
+                "setupRequired": False,
+                "runtimeReady": True,
+                "runtimeBooting": False,
+            }
+        )
+        ui.set_state("LISTENING")
         
         # Global hotkey
         def toggle_mute():
-            ui.muted = not ui.muted
+            ui.set_muted(not ui.muted)
             state = "MUTED" if ui.muted else "LISTENING"
             ui.set_state(state)
             logger.info(f"[BUDDY] Microphone {'MUTED' if ui.muted else 'ACTIVE'} via F4.")
@@ -536,6 +560,7 @@ def main():
         try:
             asyncio.run(buddy.run())
         except KeyboardInterrupt:
+            buddy.speak(build_shutdown_farewell())
             logger.info("Shutting down from keyboard interrupt")
 
     threading.Thread(target=runner, daemon=True).start()

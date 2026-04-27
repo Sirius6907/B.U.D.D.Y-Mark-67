@@ -59,3 +59,35 @@ class TaskPlan(BaseModel):
             if node.node_id == node_id:
                 return node
         return None
+
+
+class WorkflowVerification(BaseModel):
+    """Verification rule for a workflow step."""
+    method: str
+    target: str = ""
+    expected_state: str = ""
+
+
+class WorkflowStep(BaseModel):
+    """A single deterministic step in a local automation workflow."""
+    kind: str
+    action: str
+    parameters: Dict[str, Any] = Field(default_factory=dict)
+    verify: Optional[WorkflowVerification] = None
+    timeout: int = 30
+    retry_limit: int = 1
+    optional: bool = False
+
+
+class WorkflowRecipe(BaseModel):
+    """A deterministic local automation recipe executed without planner LLM."""
+    recipe_id: str
+    intent_family: str
+    goal: str
+    steps: List[WorkflowStep]
+    requires_approval: bool = False
+    success_reply_key: str = "generic"
+    approval_tool: str = "computer_control"
+    approval_parameters: Dict[str, Any] = Field(default_factory=dict)
+    risk_tier: RiskTier = RiskTier.TIER_1
+    metadata: Dict[str, Any] = Field(default_factory=dict)

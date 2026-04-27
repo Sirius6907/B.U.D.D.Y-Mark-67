@@ -1,3 +1,5 @@
+import asyncio
+
 from agent.models import ActionResult, RiskTier, TaskNode
 from agent.runtime import AgentRuntime, RuntimeStatus
 
@@ -84,3 +86,37 @@ def test_runtime_stops_when_approval_denied():
 
     results = runtime.run(nodes, goal="Ping Alex")
     assert results[0].status == "pending_approval"
+
+
+def test_runtime_coordinator_execute_workflow_respects_approval():
+    from agent.models import WorkflowRecipe, WorkflowStep, WorkflowVerification
+    from agent.runtime import RuntimeCoordinator
+
+    coordinator = RuntimeCoordinator(approval_callback=lambda message: False)
+    recipe = WorkflowRecipe(
+        recipe_id="send_message_test",
+        intent_family="send_message",
+        goal="message Rajaa hello",
+        steps=[
+            WorkflowStep(
+                kind="tool",
+                action="send_message",
+                parameters={"receiver": "Rajaa", "platform": "WhatsApp", "mode": "send", "message_text": "hello"},
+                verify=WorkflowVerification(method="result_contains", target="summary", expected_state="sent"),
+            )
+        ],
+        requires_approval=True,
+        approval_tool="send_message",
+        approval_parameters={"receiver": "Rajaa", "platform": "WhatsApp", "mode": "send", "message_text": "hello"},
+        risk_tier=RiskTier.TIER_1,
+        success_reply_key="send_message",
+    )
+
+    result = asyncio.run(
+        coordinator.execute_workflow(
+            recipe,
+            lambda recipe, speak=None: ActionResult(status="success", summary="Message sent to Rajaa via WhatsApp."),
+        )
+    )
+
+    assert result.status == "pending_approval"

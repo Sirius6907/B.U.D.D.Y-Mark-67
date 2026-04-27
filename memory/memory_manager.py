@@ -7,6 +7,9 @@ from pathlib import Path
 import sys
 
 from memory.embeddings import get_embedding_function
+from buddy_logging import get_logger
+
+logger = get_logger("memory.manager")
 
 def get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
@@ -31,6 +34,7 @@ class HybridMemory:
         
         # SQLite Setup
         self.conn = sqlite3.connect(str(SQLITE_PATH), check_same_thread=False)
+        self.conn.execute("PRAGMA journal_mode=WAL;")
         self.cursor = self.conn.cursor()
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS memory (
@@ -72,31 +76,31 @@ class HybridMemory:
             embedding_function=embedding_func
         )
 
-        
         # Run migration if needed
         self.migrate_json_if_exists()
 
     def migrate_json_if_exists(self):
-        if JSON_MEMORY_PATH.exists():
-            print(f"[Memory] 🚚 Migrating data from {JSON_MEMORY_PATH.name}...")
-            try:
-                data = json.loads(JSON_MEMORY_PATH.read_text(encoding="utf-8"))
-                if isinstance(data, dict):
-                    for category, items in data.items():
-                        if not isinstance(items, dict): continue
-                        for key, entry in items.items():
-                            val = entry.get("value") if isinstance(entry, dict) else entry
-                            updated = entry.get("updated", datetime.now().strftime("%Y-%m-%d")) if isinstance(entry, dict) else datetime.now().strftime("%Y-%m-%d")
-                            if val:
-                                self.update_entry(category, key, val, updated, skip_save=True)
-                    self.conn.commit()
-                
-                # Backup and remove old JSON
-                backup_path = JSON_MEMORY_PATH.with_suffix(".json.bak")
-                JSON_MEMORY_PATH.rename(backup_path)
-                print(f"[Memory] ✅ Migration complete. Old file backed up to {backup_path.name}")
-            except Exception as e:
-                print(f"[Memory] ❌ Migration failed: {e}")
+        with _lock:
+            if JSON_MEMORY_PATH.exists():
+                logger.info("🚚 Migrating data from %s...", JSON_MEMORY_PATH.name)
+                try:
+                    data = json.loads(JSON_MEMORY_PATH.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        for category, items in data.items():
+                            if not isinstance(items, dict): continue
+                            for key, entry in items.items():
+                                val = entry.get("value") if isinstance(entry, dict) else entry
+                                updated = entry.get("updated", datetime.now().strftime("%Y-%m-%d")) if isinstance(entry, dict) else datetime.now().strftime("%Y-%m-%d")
+                                if val:
+                                    self.update_entry(category, key, val, updated, skip_save=True)
+                        self.conn.commit()
+                    
+                        # Backup and remove old JSON
+                        backup_path = JSON_MEMORY_PATH.with_suffix(".json.bak")
+                        JSON_MEMORY_PATH.rename(backup_path)
+                        logger.info("✅ Migration complete. Old file backed up to %s", backup_path.name)
+                except Exception as e:
+                    logger.error("❌ Migration failed: %s", e)
 
     def update_entry(self, category: str, key: str, value: str, updated: str = None, skip_save: bool = False):
         if updated is None:

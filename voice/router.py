@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from buddy_logging import get_logger
 from voice.providers.base import SpeechProvider, VoiceProviderError, VoiceRoutingError
+
+logger = get_logger("voice.router")
 
 
 class VoiceRouter:
@@ -22,5 +25,6 @@ class VoiceRouter:
             try:
                 return getattr(provider, method_name)(*args)
             except VoiceProviderError as exc:  # pragma: no cover - aggregated into message
+                logger.warning("Provider %s failed during %s: %s", provider.__class__.__name__, method_name, exc)
                 errors.append(str(exc))
         raise VoiceRoutingError("; ".join(errors))

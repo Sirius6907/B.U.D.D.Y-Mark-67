@@ -4,6 +4,9 @@ import uuid
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Callable, Any
+from buddy_logging import get_logger
+
+logger = get_logger("agent.task_queue")
 
 
 class TaskStatus(Enum):
@@ -35,7 +38,7 @@ class Task:
 
 
 class TaskQueue:
-    def __init__(self, max_concurrent: int = 1):
+    def __init__(self, max_concurrent: int = 5):
         self._queue:        list[Task]       = []
         self._lock:         threading.Lock   = threading.Lock()
         self._condition:    threading.Condition = threading.Condition(self._lock)
@@ -62,13 +65,13 @@ class TaskQueue:
             name="AgentTaskQueue"
         )
         self._worker_thread.start()
-        print("[TaskQueue] ✅ Started")
+        logger.info("✅ Started")
 
     def stop(self) -> None:
         self._running = False
         with self._condition:
             self._condition.notify_all()
-        print("[TaskQueue] 🔴 Stopped")
+        logger.info("🔴 Stopped")
 
     def shutdown(self, timeout: float = 5.0) -> None:
         """Gracefully stop the queue and join the worker thread."""
@@ -76,9 +79,9 @@ class TaskQueue:
         if self._worker_thread is not None and self._worker_thread.is_alive():
             self._worker_thread.join(timeout=timeout)
             if self._worker_thread.is_alive():
-                print("[TaskQueue] ⚠️ Worker thread did not exit within timeout")
+                logger.warning("⚠️ Worker thread did not exit within timeout")
             else:
-                print("[TaskQueue] ✅ Worker thread joined")
+                logger.info("✅ Worker thread joined")
         # Cancel any remaining pending tasks
         with self._lock:
             for task in self._queue:
@@ -86,7 +89,7 @@ class TaskQueue:
                     task.cancel_flag.set()
                     task.status = TaskStatus.CANCELLED
             self._queue.clear()
-        print("[TaskQueue] ✅ Shutdown complete")
+        logger.info("✅ Shutdown complete")
 
     def submit(
         self,
@@ -112,7 +115,7 @@ class TaskQueue:
             self._tasks[task_id] = task
             self._condition.notify()
 
-        print(f"[TaskQueue] 📥 Task queued: [{task_id}] {goal[:60]}")
+        logger.info("📥 Task queued: [%s] %s", task_id, goal[:60])
         return task_id
 
     def cancel(self, task_id: str) -> bool:
@@ -126,7 +129,7 @@ class TaskQueue:
 
             task.cancel_flag.set()
             task.status = TaskStatus.CANCELLED
-            print(f"[TaskQueue] 🚫 Task cancelled: [{task_id}]")
+            logger.info("🚫 Task cancelled: [%s]", task_id)
             return True
 
     def get_status(self, task_id: str) -> dict | None:
@@ -190,7 +193,7 @@ class TaskQueue:
         return None
 
     def _run_task(self, task: Task) -> None:
-        print(f"[TaskQueue] ▶️ Running: [{task.task_id}] {task.goal[:60]}")
+        logger.info("▶️ Running: [%s] %s", task.task_id, task.goal[:60])
         try:
             executor = self._get_executor()
             result   = executor.execute(
@@ -211,16 +214,16 @@ class TaskQueue:
                 try:
                     task.on_complete(task.task_id, result)
                 except Exception as e:
-                    print(f"[TaskQueue] ⚠️ on_complete callback error: {e}")
+                    logger.error("⚠️ on_complete callback error: %s", e)
 
-            print(f"[TaskQueue] ✅ Completed: [{task.task_id}]")
+            logger.info("✅ Completed: [%s]", task.task_id)
 
         except Exception as e:
             with self._lock:
                 task.status = TaskStatus.FAILED
                 task.error  = str(e)
                 self._active_count -= 1
-            print(f"[TaskQueue] ❌ Failed: [{task.task_id}] {e}")
+            logger.error("❌ Failed: [%s] %s", task.task_id, e)
 
         with self._condition:
             self._condition.notify()

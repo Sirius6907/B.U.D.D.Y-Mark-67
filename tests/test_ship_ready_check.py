@@ -15,6 +15,6 @@ def test_ship_ready_check_runs_as_script():
         timeout=20,
     )
 
-    assert "BUDDY ship readiness check" in result.stdout
+    assert "Ship Readiness Check" in result.stdout
     assert "ModuleNotFoundError" not in result.stderr
     assert result.returncode in {0, 1}

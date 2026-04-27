@@ -7,10 +7,27 @@ import threading
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+__all__ = [
+    "AppConfig",
+    "CONFIG_FILE",
+    "EXAMPLE_CONFIG_FILE",
+    "LOG_DIR",
+    "RUNTIME_DIR",
+    "ensure_runtime_dirs",
+    "get_api_key",
+    "get_base_dir",
+    "get_os",
+    "load_config",
+    "save_config",
+    "update_config",
+    "validate_runtime_config",
+]
+
 
 def get_base_dir() -> Path:
+    """Get the absolute base directory of the project robustly."""
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).parent
+        return Path(sys.executable).parent.resolve()
     return Path(__file__).resolve().parent.parent
 
 
@@ -145,10 +162,10 @@ def load_config() -> AppConfig:
     ).strip().lower() or "production"
 
     return AppConfig(
-        gemini_api_key=gemini_api_key,
-        telegram_bot_token=telegram_bot_token,
-        telegram_username=telegram_username,
-        telegram_user_id=telegram_user_id,
+        gemini_api_key=gemini_api_key or "",
+        telegram_bot_token=telegram_bot_token or "",
+        telegram_username=telegram_username or "",
+        telegram_user_id=telegram_user_id or "",
         os_system=os_system,
         log_level=log_level,
         environment=environment,

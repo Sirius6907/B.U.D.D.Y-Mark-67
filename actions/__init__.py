@@ -18,6 +18,7 @@ import actions.computer_control
 import actions.game_updater
 import actions.flight_finder
 import actions.system_actions
+import actions.ide_tracker
 
 import actions.process_manager
 import actions.hardware_monitor
@@ -48,6 +49,7 @@ import actions.keyboard_controller
 import actions.usb_manager
 import actions.system_info
 import actions.zip_manager
+import actions.bluetooth_manager
 
 # The 10 New Modules (Shadowplay, Safety Registry, etc)
 import actions.text_to_speech
@@ -67,5 +69,8 @@ import actions.antivirus_manager
 import actions.security_auditor
 import actions.privacy_manager
 import actions.software_manager
+
+# MCP Server Controller — On-demand subordinate management
+import actions.mcp_controller
 
 __all__ = ["ActionRegistry"]

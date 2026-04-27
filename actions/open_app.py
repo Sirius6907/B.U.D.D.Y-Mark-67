@@ -116,6 +116,25 @@ def _launch_windows(app_name: str) -> bool:
     return False
 
 
+def _launch_windows_as_admin(app_name: str) -> bool:
+    command = (
+        "Start-Process "
+        f"-FilePath '{app_name}' "
+        "-Verb RunAs"
+    )
+    try:
+        subprocess.Popen(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        time.sleep(2.0)
+        return True
+    except Exception as e:
+        print(f"[open_app] admin launch failed: {e}")
+        return False
+
+
 def _launch_macos(app_name: str) -> bool:
 
     try:
@@ -228,6 +247,7 @@ def open_app(
     session_memory=None,
 ) -> str:
     app_name = (parameters or {}).get("app_name", "").strip()
+    run_as_admin = bool((parameters or {}).get("run_as_admin"))
 
     if not app_name:
         return "No application name provided."
@@ -243,6 +263,15 @@ def open_app(
         player.write_log(f"[open_app] {app_name}")
 
     try:
+        if run_as_admin:
+            if _SYSTEM != "Windows":
+                return f"Run as administrator is currently supported only on Windows for {app_name}."
+            if _launch_windows_as_admin(normalized):
+                return f"Opened {app_name} as administrator."
+            if normalized.lower() != app_name.lower() and _launch_windows_as_admin(app_name):
+                return f"Opened {app_name} as administrator."
+            return f"Could not confirm that {app_name} launched as administrator."
+
         if launcher(normalized):
             return f"Opened {app_name}."
         if normalized.lower() != app_name.lower():
@@ -270,7 +299,7 @@ class OpenAppAction(Action):
 
     @property
     def parameters_schema(self) -> dict:
-        return {'type': 'OBJECT', 'properties': {'app_name': {'type': 'STRING', 'description': "Exact name of the application (e.g. 'WhatsApp', 'Chrome', 'Spotify')"}}, 'required': ['app_name']}
+        return {'type': 'OBJECT', 'properties': {'app_name': {'type': 'STRING', 'description': "Exact name of the application (e.g. 'WhatsApp', 'Chrome', 'Spotify')"}, 'run_as_admin': {'type': 'BOOLEAN', 'description': 'Whether to open the application with administrator privileges on Windows'}}, 'required': ['app_name']}
 
     def execute(self, parameters: dict, player: Optional[Any] = None, speak: Optional[Callable] = None, **kwargs) -> str:
         return open_app(parameters=parameters, player=player)

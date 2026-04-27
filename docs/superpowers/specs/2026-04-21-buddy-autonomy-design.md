@@ -1,7 +1,7 @@
 # BUDDY MK67 Autonomy Upgrade Design
 
 Date: 2026-04-21
-Project: BUDDY MARK LXVII / Jarvis-MK37
+Project: BUDDY MARK LXVII / Buddy-MK67
 Scope: Architecture upgrade for supervised autonomy, aggressive long-term memory, Windows-first system control, and local-first hybrid voice
 
 ## Goal

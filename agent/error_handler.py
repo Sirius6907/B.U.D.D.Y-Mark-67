@@ -5,22 +5,22 @@ from pathlib import Path
 from enum import Enum
 
 from config import get_api_key
+from buddy_logging import get_logger
+
+logger = get_logger("agent.error_handler")
 
 def get_base_dir() -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent.parent
 
-
 BASE_DIR        = get_base_dir()
-
 
 class ErrorDecision(Enum):
     RETRY       = "retry"      
     SKIP        = "skip"       
     REPLAN      = "replan"     
     ABORT       = "abort"    
-
 
 ERROR_ANALYST_PROMPT = """You are the error recovery module of BUDDY MARK LXVII AI assistant.
 
@@ -48,10 +48,8 @@ Return ONLY valid JSON:
 }
 """
 
-
 def _get_api_key() -> str:
     return get_api_key(required=True)
-
 
 def analyze_error(
     step: dict,
@@ -77,20 +75,17 @@ def analyze_error(
             "user_message": str
         }
     """
-    from google import genai
-    from google.genai import types
+    from agent.llm_gateway import llm_generate_json, llm_generate
 
     if attempt >= max_attempts:
-        print(f"[ErrorHandler] ⚠️ Max attempts reached for step {step.get('step')} — forcing replan")
+        logger.warning("⚠️ Max attempts reached for step %s — forcing replan", step.get('step'))
         return {
             "decision":      ErrorDecision.REPLAN,
             "reason":        f"Failed {attempt} times: {error[:100]}",
             "fix_suggestion": "Try a completely different approach or tool",
             "max_retries":   0,
-            "user_message":  "Trying a different approach, sir."
+            "user_message":  "Trying a different approach, Buddy."
         }
-
-    client = genai.Client(api_key=_get_api_key())
 
     prompt = f"""Failed step:
 Tool: {step.get('tool')}
@@ -104,44 +99,38 @@ Error:
 Attempt number: {attempt}"""
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                system_instruction=ERROR_ANALYST_PROMPT
-            )
+        result = llm_generate_json(
+            prompt=prompt,
+            system=ERROR_ANALYST_PROMPT,
         )
-        text     = response.text.strip()
-        text     = re.sub(r"```(?:json)?", "", text).strip().rstrip("`").strip()
 
-        result = json.loads(text)
         decision_str = result.get("decision", "replan").lower()
         decision_map = {
             "retry":  ErrorDecision.RETRY,
             "skip":   ErrorDecision.SKIP,
             "replan": ErrorDecision.REPLAN,
-            "abort":  ErrorDecision.ABORT,
+            "abort":  ErrorDecision.ABORT
         }
+        
         result["decision"] = decision_map.get(decision_str, ErrorDecision.REPLAN)
-
+        
+        logger.info("Decision: %s — %s", result['decision'].value, result.get('reason', ''))
 
         if step.get("critical") and result["decision"] == ErrorDecision.SKIP:
             result["decision"]     = ErrorDecision.REPLAN
-            result["user_message"] = "This step is critical — finding alternative approach, sir."
+            result["user_message"] = "This step is critical — finding alternative approach, Buddy."
 
-        print(f"[ErrorHandler] Decision: {result['decision'].value} — {result.get('reason', '')}")
         return result
 
     except Exception as e:
-        print(f"[ErrorHandler] ⚠️ Analysis failed: {e} — defaulting to replan")
+        logger.warning("⚠️ Analysis failed: %s — defaulting to replan", e)
         return {
-            "decision":       ErrorDecision.REPLAN,
+            "decision":      ErrorDecision.REPLAN,
             "reason":         str(e),
             "fix_suggestion": "Try alternative approach",
             "max_retries":    1,
-            "user_message":   "Encountered an issue, adjusting approach, sir."
+            "user_message":   "Encountered an issue, adjusting approach, Buddy."
         }
-
 
 def generate_fix(step: dict, error: str, fix_suggestion: str) -> dict:
     """
@@ -150,8 +139,7 @@ def generate_fix(step: dict, error: str, fix_suggestion: str) -> dict:
 
     Returns a modified step dict.
     """
-    from google import genai
-    client = genai.Client(api_key=_get_api_key())
+    from agent.llm_gateway import llm_generate
 
     prompt = f"""A task step failed. Generate a replacement step.
 
@@ -167,11 +155,8 @@ Write a Python script that accomplishes the same goal differently.
 Return ONLY the Python code, no explanation."""
 
     try:
-        response = client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
-        )
-        code = response.text.strip()
+        result = llm_generate(prompt=prompt)
+        code = result.text.strip()
         code = re.sub(r"```(?:python)?", "", code).strip().rstrip("`").strip()
 
         return {
@@ -184,14 +169,15 @@ Return ONLY the Python code, no explanation."""
                 "code":        code,
                 "language":    "python"
             },
-            "depends_on": step.get("depends_on", []),
-            "critical":   step.get("critical", False)
+            "depends_on":            [],
+            "fixed_parameters": {},
+            "user_message": "Trying a different approach, Buddy."
         }
 
     except Exception as e:
-        print(f"[ErrorHandler] ⚠️ Fix generation failed: {e}")
+        logger.warning("⚠️ Fix generation failed: %s", e)
         return {
-            "step":        step.get("step"),
+            "tool_name": step.get("tool"),
             "tool":        "generated_code",
             "description": f"Fallback for: {step.get('description')}",
             "parameters":  {"description": step.get("description", "")},
