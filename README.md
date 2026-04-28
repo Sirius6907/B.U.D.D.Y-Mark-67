@@ -1,4 +1,4 @@
-<![CDATA[<div align="center">
+<div align="center">
 
 # 🤖 B.U.D.D.Y — Mark 67
 
