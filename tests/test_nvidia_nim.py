@@ -47,16 +47,16 @@ def mock_api_key():
 @pytest.fixture
 def nim_client(mock_api_key):
     """Create a NIMClient with mock API key."""
-    return NIMClient()
+    return NIMClient(api_key="nvapi-test-key-123")
 
 
 @pytest.fixture
 def mock_image_response():
-    """Create a mock successful image generation response."""
+    """Create a mock successful image generation response (NVIDIA format)."""
     # Create a tiny 1x1 PNG
     tiny_png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 100).decode()
     return {
-        "data": [{"b64_json": tiny_png}]
+        "artifacts": [{"base64": tiny_png}]
     }
 
 
@@ -75,11 +75,9 @@ class TestModelCatalog:
     """Tests for model catalog completeness and structure."""
 
     def test_image_models_exist(self):
-        assert len(IMAGE_MODELS) >= 4
+        assert len(IMAGE_MODELS) >= 2
         assert "flux-schnell" in IMAGE_MODELS
         assert "flux-dev" in IMAGE_MODELS
-        assert "flux-kontext" in IMAGE_MODELS
-        assert "flux-klein" in IMAGE_MODELS
 
     def test_video_models_exist(self):
         assert len(VIDEO_MODELS) >= 2
@@ -118,6 +116,11 @@ class TestModelCatalog:
         for name, meta in ALL_MODELS.items():
             assert "/" in meta.model_id, f"{name} model_id should be org/model format"
 
+    def test_model_ids_use_dot_notation(self):
+        """NVIDIA uses dots in model names: flux.1-schnell NOT flux-1-schnell."""
+        for name in ("flux-schnell", "flux-dev"):
+            assert ".1-" in IMAGE_MODELS[name].model_id
+
 
 # ─── Model Selection Tests ───────────────────────────────────────────────────
 
@@ -142,7 +145,7 @@ class TestModelSelection:
 
     def test_select_explicit_model_by_name(self):
         model = _select_model("test", "image", model_name="flux-dev")
-        assert model.model_id == "black-forest-labs/flux-1-dev"
+        assert model.model_id == "black-forest-labs/flux.1-dev"
 
     def test_select_explicit_model_by_partial_match(self):
         model = _select_model("test", "image", model_name="schnell")
@@ -208,7 +211,8 @@ class TestAPIKey:
             {"NVIDIA_NIM_API_KEY": "", "NVIDIA_API_KEY": "nvapi-fallback"},
             clear=False,
         ):
-            assert _get_nim_key() == "nvapi-fallback"
+            with patch("tools.nvidia_nim._load_env", return_value={}):
+                assert _get_nim_key() == "nvapi-fallback"
 
     def test_missing_key_raises(self):
         with patch.dict(
@@ -216,9 +220,15 @@ class TestAPIKey:
             {"NVIDIA_NIM_API_KEY": "", "NVIDIA_API_KEY": ""},
             clear=False,
         ):
-            with patch("config.runtime.load_env_file", return_value={}):
+            with patch("tools.nvidia_nim._load_env", return_value={}):
                 with pytest.raises(RuntimeError, match="API key not found"):
                     _get_nim_key()
+
+    def test_per_model_key(self):
+        """Test per-model key retrieval."""
+        model = IMAGE_MODELS["flux-schnell"]
+        with patch.dict(os.environ, {model.env_key: "nvapi-schnell-specific"}):
+            assert _get_nim_key(model) == "nvapi-schnell-specific"
 
 
 # ─── NIMClient Tests ─────────────────────────────────────────────────────────
@@ -227,16 +237,16 @@ class TestNIMClient:
     """Tests for the NIMClient class."""
 
     def test_client_construction(self, mock_api_key):
-        client = NIMClient()
-        assert client._api_key == "nvapi-test-key-123"
+        client = NIMClient(api_key="nvapi-test-key-123")
+        assert client._override_key == "nvapi-test-key-123"
 
     def test_client_with_explicit_key(self):
         client = NIMClient(api_key="nvapi-explicit")
-        assert client._api_key == "nvapi-explicit"
+        assert client._override_key == "nvapi-explicit"
 
     def test_list_all_models(self, nim_client):
         models = nim_client.list_models()
-        assert len(models) >= 6
+        assert len(models) >= 5
         assert all("name" in m for m in models)
         assert all("model_id" in m for m in models)
 
@@ -255,7 +265,6 @@ class TestNIMClient:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = mock_image_response
-        mock_resp.raise_for_status.return_value = None
         mock_post.return_value = mock_resp
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -274,7 +283,6 @@ class TestNIMClient:
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = mock_image_response
-        mock_resp.raise_for_status.return_value = None
         mock_post.return_value = mock_resp
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -284,17 +292,16 @@ class TestNIMClient:
                 negative_prompt="blurry, low quality",
                 save_path=str(save_path),
             )
-            # Verify negative_prompt was included in the request
+            # Verify negative_prompt was included in the NVIDIA payload
             call_args = mock_post.call_args
             payload = call_args[1]["json"]
-            assert "negative_prompt" in payload.get("extra_body", {})
+            assert payload.get("negative_prompt") == "blurry, low quality"
 
     @patch("requests.post")
     def test_generate_image_with_seed(self, mock_post, nim_client, mock_image_response):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = mock_image_response
-        mock_resp.raise_for_status.return_value = None
         mock_post.return_value = mock_resp
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -306,14 +313,13 @@ class TestNIMClient:
             )
             call_args = mock_post.call_args
             payload = call_args[1]["json"]
-            assert payload["extra_body"]["seed"] == 42
+            assert payload["seed"] == 42
 
     @patch("requests.post")
     def test_generate_video_success(self, mock_post, nim_client, mock_video_response):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = mock_video_response
-        mock_resp.raise_for_status.return_value = None
         mock_post.return_value = mock_resp
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -331,19 +337,13 @@ class TestNIMClient:
     @patch("requests.post")
     def test_rate_limit_retry(self, mock_post, nim_client, mock_image_response):
         """Test that 429 rate limit triggers retry."""
-        import requests as req_mod
-
         rate_limited = MagicMock()
         rate_limited.status_code = 429
-        rate_limited.raise_for_status.side_effect = req_mod.exceptions.HTTPError(
-            response=rate_limited
-        )
         rate_limited.text = "Rate limited"
 
         success = MagicMock()
         success.status_code = 200
         success.json.return_value = mock_image_response
-        success.raise_for_status.return_value = None
 
         mock_post.side_effect = [rate_limited, success]
 
@@ -356,6 +356,24 @@ class TestNIMClient:
             assert result["path"] == str(save_path)
             assert mock_post.call_count == 2
 
+    @patch("requests.post")
+    def test_endpoint_url_uses_model_id(self, mock_post, nim_client, mock_image_response):
+        """Verify the endpoint URL includes the model ID path."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = mock_image_response
+        mock_post.return_value = mock_resp
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            save_path = Path(tmpdir) / "test.png"
+            nim_client.generate_image(
+                prompt="test",
+                save_path=str(save_path),
+            )
+            call_url = mock_post.call_args[0][0]
+            assert "ai.api.nvidia.com" in call_url
+            assert "flux.1" in call_url
+
 
 # ─── Executor Entry Point Tests ──────────────────────────────────────────────
 
@@ -363,18 +381,21 @@ class TestExecutorEntryPoint:
     """Tests for the nvidia_generate() executor function."""
 
     @patch("tools.nvidia_nim._get_nim_key", return_value="nvapi-test")
-    def test_list_models_action(self, mock_key):
+    @patch("tools.nvidia_nim._load_env", return_value={})
+    def test_list_models_action(self, mock_env, mock_key):
         result = nvidia_generate({"action": "list_models"})
         assert "Available NVIDIA NIM" in result
         assert "flux" in result.lower()
 
     @patch("tools.nvidia_nim._get_nim_key", return_value="nvapi-test")
-    def test_list_models_image_only(self, mock_key):
+    @patch("tools.nvidia_nim._load_env", return_value={})
+    def test_list_models_image_only(self, mock_env, mock_key):
         result = nvidia_generate({"action": "list_models", "modality": "image"})
         assert "flux" in result.lower()
 
     @patch("tools.nvidia_nim._get_nim_key", return_value="nvapi-test")
-    def test_list_models_video_only(self, mock_key):
+    @patch("tools.nvidia_nim._load_env", return_value={})
+    def test_list_models_video_only(self, mock_env, mock_key):
         result = nvidia_generate({"action": "list_models", "modality": "video"})
         assert "cosmos" in result.lower()
 
@@ -483,7 +504,7 @@ class TestModelMetadata:
         assert IMAGE_MODELS["flux-schnell"].default_steps == 4
 
     def test_flux_dev_steps(self):
-        assert IMAGE_MODELS["flux-dev"].default_steps == 30
+        assert IMAGE_MODELS["flux-dev"].default_steps == 20
 
     def test_cosmos_video_default_size(self):
         assert VIDEO_MODELS["cosmos-text2world"].default_size == "1280x704"

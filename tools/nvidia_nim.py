@@ -2,19 +2,20 @@
 tools/nvidia_nim.py — NVIDIA NIM Image & Video Generation Adapter
 ===================================================================
 Professional adapter for NVIDIA's NIM API providing:
-  - Image generation via FLUX models (1-schnell, 1-dev, 2-klein)
+  - Image generation via FLUX models (FLUX.1-schnell, FLUX.1-dev)
   - Video generation via Cosmos-Predict1 (Text2World)
+  - Per-model API key support (NVIDIA issues separate keys per model)
   - Automatic model selection based on quality/speed preference
   - Output saved to ~/Pictures/buddy_gen/ or ~/Videos/buddy_gen/
-  - Budget-aware with credit tracking
 
 Architecture:
-  1. MODEL_CATALOG maps model aliases → NIM model IDs + metadata
+  1. MODEL_CATALOG maps model aliases → NIM model IDs + endpoints
   2. NIMClient handles auth, requests, retries
   3. generate_image() / generate_video() are the main entry points
   4. nvidia_generate() is the executor registry entry point
 
-API: OpenAI-compatible via integrate.api.nvidia.com/v1
+API: NVIDIA NVCF at ai.api.nvidia.com/v1/genai/{model_id}
+     Response: {"artifacts": [{"base64": "..."}]}
 """
 from __future__ import annotations
 
@@ -43,7 +44,8 @@ __all__ = [
 
 # ─── Constants ────────────────────────────────────────────────────────────────
 
-NIM_BASE_URL = "https://integrate.api.nvidia.com/v1"
+# NVIDIA NVCF (Cloud Functions) base URL — NOT the OpenAI-compat LLM endpoint
+NIM_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
 OUTPUT_DIR_IMAGES = Path.home() / "Pictures" / "buddy_gen"
 OUTPUT_DIR_VIDEOS = Path.home() / "Videos" / "buddy_gen"
 MAX_RETRIES = 2
@@ -62,10 +64,11 @@ class ModelTier(str, Enum):
 @dataclass(frozen=True)
 class NIMModelMeta:
     """Metadata for a NIM generation model."""
-    model_id: str                     # NIM model identifier
+    model_id: str                     # NIM model identifier (used in endpoint URL)
     display_name: str                 # Human-readable name
     tier: ModelTier                   # Speed/quality classification
     modality: str                     # "image" or "video"
+    env_key: str = ""                 # .env key name for per-model API key
     default_size: str = "1024x1024"   # Default output dimensions
     max_size: str = "1024x1024"       # Maximum dimensions
     supports_negative: bool = True    # Supports negative prompts
@@ -75,38 +78,34 @@ class NIMModelMeta:
 
 
 # Image generation models
+# NOTE: NVIDIA uses DOTS in model names: flux.1-schnell NOT flux-1-schnell
 IMAGE_MODELS: dict[str, NIMModelMeta] = {
     "flux-schnell": NIMModelMeta(
-        model_id="black-forest-labs/flux-1-schnell",
+        model_id="black-forest-labs/flux.1-schnell",
         display_name="FLUX.1 Schnell",
         tier=ModelTier.FAST,
         modality="image",
+        env_key="NVIDIA_NIM_FLUX_SCHNELL_KEY",
         default_steps=4,
-        description="Ultra-fast image generation (~1s). Good for drafts and iteration.",
+        description="Ultra-fast image generation (~2s). Good for drafts and iteration.",
     ),
     "flux-dev": NIMModelMeta(
-        model_id="black-forest-labs/flux-1-dev",
+        model_id="black-forest-labs/flux.1-dev",
         display_name="FLUX.1 Dev",
         tier=ModelTier.BALANCED,
         modality="image",
-        default_steps=30,
+        env_key="NVIDIA_NIM_FLUX_DEV_KEY",
+        default_steps=20,
         description="Balanced quality and speed. Best general-purpose model.",
     ),
-    "flux-kontext": NIMModelMeta(
-        model_id="black-forest-labs/flux-1-kontext",
-        display_name="FLUX.1 Kontext",
+    "sd35": NIMModelMeta(
+        model_id="stabilityai/stable-diffusion-3-5-large",
+        display_name="Stable Diffusion 3.5 Large",
         tier=ModelTier.QUALITY,
         modality="image",
+        env_key="NVIDIA_NIM_SD35_KEY",
         default_steps=30,
-        description="Context-aware generation with image-to-image support.",
-    ),
-    "flux-klein": NIMModelMeta(
-        model_id="black-forest-labs/flux-2-klein-4b",
-        display_name="FLUX.2 Klein 4B",
-        tier=ModelTier.BALANCED,
-        modality="image",
-        default_steps=20,
-        description="Lightweight FLUX.2 model. Fast with good quality.",
+        description="High-quality image generation. Best for detailed, artistic outputs.",
     ),
 }
 
@@ -139,28 +138,48 @@ ALL_MODELS = {**IMAGE_MODELS, **VIDEO_MODELS}
 
 # ─── NIM Client ──────────────────────────────────────────────────────────────
 
-def _get_nim_key() -> str:
-    """Retrieve NVIDIA NIM API key from environment or .env file."""
-    key = os.environ.get("NVIDIA_NIM_API_KEY", "").strip()
-    if not key:
-        key = os.environ.get("NVIDIA_API_KEY", "").strip()
-    if not key:
-        # Fall back to project .env file (matches load_config pattern)
-        try:
-            from config.runtime import load_env_file
-            env_data = load_env_file()
-            key = env_data.get("NVIDIA_NIM_API_KEY", "").strip()
-            if not key:
-                key = env_data.get("NVIDIA_API_KEY", "").strip()
-        except Exception:
-            pass
-    if not key:
-        raise RuntimeError(
-            "NVIDIA NIM API key not found. "
-            "Set NVIDIA_NIM_API_KEY in your .env file. "
-            "Get a free key at https://build.nvidia.com"
-        )
-    return key
+def _load_env() -> dict[str, str]:
+    """Load environment data from the project .env file."""
+    try:
+        from config.runtime import load_env_file
+        return load_env_file()
+    except Exception:
+        return {}
+
+
+def _get_nim_key(model: NIMModelMeta | None = None) -> str:
+    """
+    Retrieve NVIDIA NIM API key.
+    
+    Priority:
+      1. Per-model env var (e.g. NVIDIA_NIM_FLUX_SCHNELL_KEY)
+      2. Generic NVIDIA_NIM_API_KEY from os.environ
+      3. Fallback to .env file
+    """
+    env_data = _load_env()
+    
+    # 1. Per-model key (if model specified and has an env_key)
+    if model and model.env_key:
+        key = os.environ.get(model.env_key, "").strip()
+        if not key:
+            key = env_data.get(model.env_key, "").strip()
+        if key:
+            return key
+    
+    # 2. Generic key
+    for var_name in ("NVIDIA_NIM_API_KEY", "NVIDIA_API_KEY"):
+        key = os.environ.get(var_name, "").strip()
+        if key:
+            return key
+        key = env_data.get(var_name, "").strip()
+        if key:
+            return key
+    
+    raise RuntimeError(
+        "NVIDIA NIM API key not found. "
+        "Set NVIDIA_NIM_API_KEY in your .env file. "
+        "Get a free key at https://build.nvidia.com"
+    )
 
 
 def _select_model(
@@ -229,11 +248,17 @@ def _parse_size(size_str: str) -> tuple[int, int]:
 class NIMClient:
     """
     Client for NVIDIA NIM image and video generation API.
-    Uses OpenAI-compatible endpoints at integrate.api.nvidia.com.
+    Uses per-model NVCF endpoints at ai.api.nvidia.com/v1/genai/{model_id}.
     """
 
     def __init__(self, api_key: str | None = None):
-        self._api_key = api_key or _get_nim_key()
+        self._override_key = api_key
+    
+    def _key_for_model(self, model: NIMModelMeta) -> str:
+        """Get the API key for a specific model."""
+        if self._override_key:
+            return self._override_key
+        return _get_nim_key(model)
     
     def generate_image(
         self,
@@ -257,35 +282,28 @@ class NIMClient:
         if model is None:
             model = _select_model(prompt, "image", model_name, quality)
         
-        width, height = _parse_size(size or model.default_size)
+        api_key = self._key_for_model(model)
         actual_steps = steps or model.default_steps
         
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
         
+        # NVIDIA NVCF payload format (NOT OpenAI format)
         payload: dict[str, Any] = {
-            "model": model.model_id,
             "prompt": prompt,
-            "size": f"{width}x{height}",
-            "n": 1,
-            "response_format": "b64_json",
+            "steps": actual_steps,
         }
         
-        extra: dict[str, Any] = {}
         if seed is not None:
-            extra["seed"] = seed
-        if actual_steps:
-            extra["num_inference_steps"] = actual_steps
+            payload["seed"] = seed
         if negative_prompt and model.supports_negative:
-            extra["negative_prompt"] = negative_prompt
-        if extra:
-            payload["extra_body"] = extra
+            payload["negative_prompt"] = negative_prompt
         
-        # Make request with retries
-        url = f"{NIM_BASE_URL}/images/generations"
+        # Per-model endpoint: ai.api.nvidia.com/v1/genai/{model_id}
+        url = f"{NIM_BASE_URL}/{model.model_id}"
         last_error = None
         start = time.time()
         
@@ -297,19 +315,19 @@ class NIMClient:
                     json=payload,
                     timeout=REQUEST_TIMEOUT,
                 )
-                resp.raise_for_status()
-                data = resp.json()
-                break
-            except requests.exceptions.HTTPError as e:
-                last_error = e
+                if resp.status_code == 200:
+                    break
                 if resp.status_code == 429:
                     # Rate limited — wait and retry
                     wait = min(2 ** attempt, 10)
                     time.sleep(wait)
+                    last_error = RuntimeError(
+                        f"Rate limited (429). Retrying in {wait}s..."
+                    )
                     continue
                 raise RuntimeError(
                     f"NIM API error {resp.status_code}: {resp.text[:500]}"
-                ) from e
+                )
             except requests.exceptions.RequestException as e:
                 last_error = e
                 if attempt <= MAX_RETRIES:
@@ -317,29 +335,52 @@ class NIMClient:
                     continue
                 raise RuntimeError(f"NIM connection failed: {e}") from e
         else:
-            raise RuntimeError(f"NIM API failed after {MAX_RETRIES + 1} attempts: {last_error}")
+            raise RuntimeError(
+                f"NIM API failed after {MAX_RETRIES + 1} attempts: {last_error}"
+            )
         
         elapsed = time.time() - start
         
-        # Extract and save image
-        b64_data = data["data"][0].get("b64_json", "")
-        if not b64_data:
-            # Some models return URL instead
-            img_url = data["data"][0].get("url", "")
-            if img_url:
-                img_resp = requests.get(img_url, timeout=60)
-                img_bytes = img_resp.content
+        # Parse NVIDIA response: {"artifacts": [{"base64": "..."}]}
+        data = resp.json()
+        
+        img_bytes = None
+        # Primary format: artifacts array with base64
+        if "artifacts" in data and data["artifacts"]:
+            b64_data = data["artifacts"][0].get("base64", "")
+            if b64_data:
+                img_bytes = base64.b64decode(b64_data)
+        
+        # Fallback: OpenAI-compat format
+        if img_bytes is None and "data" in data:
+            b64_data = data["data"][0].get("b64_json", "")
+            if b64_data:
+                img_bytes = base64.b64decode(b64_data)
             else:
-                raise RuntimeError("NIM returned no image data")
+                img_url = data["data"][0].get("url", "")
+                if img_url:
+                    img_resp = requests.get(img_url, timeout=60)
+                    img_bytes = img_resp.content
+        
+        if img_bytes is None:
+            raise RuntimeError(
+                f"NIM returned no image data. Response keys: {list(data.keys())}"
+            )
+        
+        # Detect format and set extension
+        if img_bytes[:8] == b'\x89PNG\r\n\x1a\n':
+            ext = "png"
+        elif img_bytes[:2] == b'\xff\xd8':
+            ext = "jpg"
         else:
-            img_bytes = base64.b64decode(b64_data)
+            ext = "png"  # default
         
         # Save to disk
         if save_path:
             output_path = Path(save_path)
         else:
             OUTPUT_DIR_IMAGES.mkdir(parents=True, exist_ok=True)
-            filename = f"img_{int(time.time())}_{uuid.uuid4().hex[:6]}.png"
+            filename = f"img_{int(time.time())}_{uuid.uuid4().hex[:6]}.{ext}"
             output_path = OUTPUT_DIR_IMAGES / filename
         
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -349,7 +390,7 @@ class NIMClient:
             "path": str(output_path),
             "model": model.display_name,
             "model_id": model.model_id,
-            "size": f"{width}x{height}",
+            "size": size,
             "prompt": prompt[:200],
             "steps": actual_steps,
             "elapsed_seconds": round(elapsed, 2),
@@ -382,16 +423,16 @@ class NIMClient:
         if model is None:
             model = _select_model(prompt, "video", model_name, quality)
         
+        api_key = self._key_for_model(model)
         actual_steps = steps or model.default_steps
         
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
         
         payload: dict[str, Any] = {
-            "model": model.model_id,
             "prompt": prompt,
             "negative_prompt": negative_prompt,
             "seed": seed if seed is not None else 42,
@@ -405,8 +446,8 @@ class NIMClient:
             },
         }
         
-        # Cosmos uses a different endpoint pattern
-        url = f"{NIM_BASE_URL}/infer"
+        # Per-model endpoint
+        url = f"{NIM_BASE_URL}/{model.model_id}"
         last_error = None
         start = time.time()
         
@@ -418,18 +459,16 @@ class NIMClient:
                     json=payload,
                     timeout=300,  # Video generation takes longer
                 )
-                resp.raise_for_status()
-                data = resp.json()
-                break
-            except requests.exceptions.HTTPError as e:
-                last_error = e
+                if resp.status_code == 200:
+                    break
                 if resp.status_code == 429:
                     wait = min(2 ** attempt, 15)
                     time.sleep(wait)
+                    last_error = RuntimeError("Rate limited (429)")
                     continue
                 raise RuntimeError(
                     f"NIM Video API error {resp.status_code}: {resp.text[:500]}"
-                ) from e
+                )
             except requests.exceptions.RequestException as e:
                 last_error = e
                 if attempt <= MAX_RETRIES:
@@ -440,12 +479,14 @@ class NIMClient:
             raise RuntimeError(f"NIM Video API failed after retries: {last_error}")
         
         elapsed = time.time() - start
+        data = resp.json()
         
-        # Extract and save video
+        # Extract video data
         b64_video = data.get("b64_video", "")
         if not b64_video:
-            # Try alternative response fields
             b64_video = data.get("video", "")
+        if not b64_video and "artifacts" in data:
+            b64_video = data["artifacts"][0].get("base64", "")
         if not b64_video:
             raise RuntimeError(
                 f"NIM returned no video data. Response keys: {list(data.keys())}"
