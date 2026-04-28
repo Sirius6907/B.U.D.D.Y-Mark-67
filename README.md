@@ -9,8 +9,9 @@ B.U.D.D.Y is an AI agent that can **see your screen, understand context, plan ta
 <p>
   <img src="https://img.shields.io/badge/Python-3.12+-3776AB?style=for-the-badge&logo=python&logoColor=white" />
   <img src="https://img.shields.io/badge/Windows-10%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white" />
-  <img src="https://img.shields.io/badge/Tests-309_Passing-2EA043?style=for-the-badge&logo=pytest&logoColor=white" />
-  <img src="https://img.shields.io/badge/Tools-95+-FF6F00?style=for-the-badge&logo=gear&logoColor=white" />
+  <img src="https://img.shields.io/badge/Tests-365_Passing-2EA043?style=for-the-badge&logo=pytest&logoColor=white" />
+  <img src="https://img.shields.io/badge/Tools-100+-FF6F00?style=for-the-badge&logo=gear&logoColor=white" />
+  <img src="https://img.shields.io/badge/NVIDIA_NIM-Image_%2B_Video-76B900?style=for-the-badge&logo=nvidia&logoColor=white" />
 </p>
 
 **Built by [Sirius](https://github.com/Sirius6907)**  
@@ -39,6 +40,7 @@ It can:
 - 🌐 Automate the browser
 - 💻 Write and run code
 - 🛡️ Use governed security tools through Kali Linux
+- 🎨 Generate images and videos from text prompts (NVIDIA NIM)
 
 ---
 
@@ -56,6 +58,10 @@ It can:
 "Scan localhost for open ports"
 
 "Backup my Documents folder to D drive"
+
+"Generate a cyberpunk cityscape wallpaper in 4K"
+
+"Create a 5-second video of a spaceship flying through clouds"
 ```
 
 ---
@@ -84,7 +90,7 @@ B.U.D.D.Y uses a self-correcting execution loop called **OPEV**:
                            ▼
                   ┌─────────────────┐
                   │    EXECUTE      │  Dispatch tools from
-                  │  (95+ tools)    │  registry with policy gates
+                  │  (100+ tools)    │  registry with policy gates
                   └────────┬────────┘
                            ▼
                   ┌─────────────────┐
@@ -102,7 +108,7 @@ B.U.D.D.Y uses a self-correcting execution loop called **OPEV**:
 ### What This Means
 
 - Understands messy prompts via intent compilation
-- Selects the right tools from 95+ registered actions
+- Selects the right tools from 100+ registered actions
 - Blocks unsafe actions through policy + safety scanning
 - Tracks execution budget (time, steps, API calls)
 - Retries failures intelligently with re-planning
@@ -116,6 +122,7 @@ B.U.D.D.Y doesn't depend on a single model — it routes across providers with a
 |---|---|---|
 | **Primary** | OpenRouter (configurable) | Fast reasoning, task planning |
 | **Fallback** | Gemini 2.5 Flash / Pro | Deep reasoning, vision analysis |
+| **Image/Video** | NVIDIA NIM (FLUX + Cosmos) | AI image & video generation |
 | **Embeddings** | `all-MiniLM-L6-v2` (local) | RAG document retrieval — runs offline |
 
 ---
@@ -169,6 +176,40 @@ Write code, run scripts, debug failures, generate reports, automate workflows. C
 ## 📊 Telemetry + Benchmarks
 
 Tracks execution quality, failures, latency, and test performance with a built-in ring buffer, per-tool analytics, and query API.
+
+## 🎨 AI Image & Video Generation — NVIDIA NIM
+
+Generate images and videos from natural language prompts using NVIDIA's NIM API with automatic model selection.
+
+```text
+"Generate a photorealistic portrait of a futuristic astronaut on Mars"
+"Create a cinematic video of ocean waves crashing on a rocky shore"
+"Make a quick draft logo for a tech startup called NovaByte"
+```
+
+### Image Models
+
+| Model | Speed | Quality | Best For |
+|---|---|---|---|
+| **FLUX.1 Schnell** | ⚡ ~1s | Good | Drafts, rapid iteration |
+| **FLUX.1 Dev** | 🔄 ~5s | High | General-purpose (default) |
+| **FLUX.1 Kontext** | 🔄 ~8s | Highest | Context-aware, image-to-image |
+| **FLUX.2 Klein 4B** | ⚡ ~3s | High | Lightweight, fast + quality |
+
+### Video Models
+
+| Model | Duration | Quality | Best For |
+|---|---|---|---|
+| **Cosmos Text2World** | ~5s clip | Cinematic | Text-to-video generation |
+| **Cosmos Video2World** | ~5s clip | Cinematic | Video extension/transformation |
+
+### Smart Defaults
+
+- **Quality tiers**: Say `"fast"`, `"balanced"`, or `"quality"` — B.U.D.D.Y picks the right model
+- **Auto-save**: Images → `~/Pictures/buddy_gen/` · Videos → `~/Videos/buddy_gen/`
+- **Seed support**: Reproducible generations with deterministic seeds
+- **Negative prompts**: Exclude unwanted elements (`"blurry, low quality"`)
+- **Rate limit handling**: Automatic retry with exponential backoff on 429 errors
 
 ---
 
@@ -287,6 +328,7 @@ B.U.D.D.Y has real system access, so security is built into the runtime — not 
 |---|---|
 | **Google Gemini** (2.5 Flash/Pro) | Vision analysis, planning, fallback reasoning |
 | **OpenRouter** | Primary LLM routing (model-agnostic) |
+| **NVIDIA NIM** | FLUX image + Cosmos video generation |
 | **sentence-transformers** | Local embedding generation |
 | **ChromaDB** | Vector database for semantic search |
 
@@ -338,16 +380,16 @@ B.U.D.D.Y-Mark-67/
 │   └── ...                    #   + 18 more modules
 │
 ├── actions/                   # 🔧 70 Desktop Tool Modules
-├── tools/                     # 🔐 External Tool Adapters (Kali)
+├── tools/                     # 🔐 External Adapters (Kali, NVIDIA NIM)
 ├── memory/                    # 💾 Memory + RAG (12 modules)
 ├── voice/                     # 🎙️ Voice System
 ├── career/                    # 💼 Career Automation
 ├── benchmarks/                # 📊 Testing Framework
-├── tests/                     # ✅ 49 test files, 309 tests
+├── tests/                     # ✅ 50 test files, 365 tests
 └── docs/                      # 📖 Documentation
 ```
 
-**By the numbers:** 136 source files · 70 action modules · 25 Kali tools · 31 agent modules · 49 test files · 309 passing tests
+**By the numbers:** 137 source files · 70 action modules · 25 Kali tools · 6 NIM models · 31 agent modules · 50 test files · 365 passing tests
 
 ---
 
@@ -382,6 +424,7 @@ Create `.env` and add your keys:
 |---|---|---|---|
 | `BUDDY_GEMINI_API_KEY` | [Google AI Studio](https://aistudio.google.com/) | **Yes** | Vision, planning, fallback LLM |
 | `OPENROUTER_API_KEY` | [OpenRouter](https://openrouter.ai/) | **Yes** | Primary LLM routing |
+| `NVIDIA_NIM_API_KEY` | [NVIDIA NIM](https://build.nvidia.com/) | Optional | Free image + video generation |
 | `SARVAM_API_KEY` | [Sarvam AI](https://sarvam.ai/) | Optional | Voice STT/TTS |
 | `TELEGRAM_BOT_TOKEN` | [BotFather](https://t.me/BotFather) | Optional | Remote control via Telegram |
 | `TELEGRAM_USER_ID` | Telegram | Optional | Access lock for Telegram bridge |
@@ -416,8 +459,8 @@ wsl -d kali-linux -- echo "Kali connected"
 
 ### Current Stats
 
-- ✅ **309** Passing Tests across **49** test files
-- ✅ **95+** Registered Tools (70 desktop + 25 Kali)
+- ✅ **365** Passing Tests across **50** test files
+- ✅ **100+** Registered Tools (70 desktop + 25 Kali + 6 NIM models)
 - ✅ **12** Permission Scopes with 4-tier approval system
 - ✅ **5** Threat Categories with 30+ safety patterns
 - ✅ **3** Memory Tiers with local RAG indexing

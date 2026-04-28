@@ -164,6 +164,8 @@ _TOOL_REGISTRY: dict[str, Callable[..., str]] = {
     "privacy_hardener":     _make_standard_tool("actions.privacy_hardener", "privacy_hardener"),
     # Kali Linux WSL Adapter (25+ tools via governed bridge)
     "kali_tool":            _make_standard_tool("tools.kali_adapter", "kali_tool"),
+    # NVIDIA NIM Image & Video Generation
+    "nvidia_generate":      _make_standard_tool("tools.nvidia_nim", "nvidia_generate"),
 
     # ── Developer & Code ──────────────────────────────────────────────────
     "code_helper":          _make_speak_tool("actions.code_helper", "code_helper"),
