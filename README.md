@@ -470,26 +470,26 @@ B.U.D.D.Y's Kali integration is not a raw shell — it's a **governed execution 
 
 ```
 ┌──────────────────────────────────────────────────┐
-│                  OPEV Runtime                     │
-│                                                   │
+│                  OPEV Runtime                    │
+│                                                  │
 │  ┌─────────────┐    ┌──────────────────────────┐ │
-│  │ PolicyEngine │───▶│ ContentSafetyScanner     │ │
-│  │ (scope check)│    │ (Kali danger patterns)   │ │
+│  │ PolicyEngine │───▶│ ContentSafetyScanner   │ │
+│  │ (scope check)│    │ (Kali danger patterns)  │ │
 │  └─────────────┘    └──────────┬───────────────┘ │
-│                                 ▼                 │
+│                                 ▼                │
 │                     ┌──────────────────────────┐ │
-│                     │    KaliAdapter            │ │
-│                     │ ┌──────────────────────┐  │ │
-│                     │ │ TargetScopeValidator  │  │ │
-│                     │ │ (allowlist check)     │  │ │
-│                     │ └──────────┬───────────┘  │ │
-│                     └────────────┼──────────────┘ │
-└──────────────────────────────────┼────────────────┘
+│                     │    KaliAdapter           │ │
+│                     │ ┌──────────────────────┐ │ │
+│                     │ │ TargetScopeValidator │ │ │
+│                     │ │ (allowlist check)    │ │ │
+│                     │ └──────────┬───────────┘ │ │
+│                     └────────────┼─────────────┘ │
+└──────────────────────────────────┼───────────────┘
                                    ▼
                         ┌──────────────────┐
-                        │   WSL Subprocess  │
-                        │  (kali-linux)     │
-                        │  Output ≤ 1 MB    │
+                        │   WSL Subprocess │
+                        │  (kali-linux)    │
+                        │  Output ≤ 1 MB   │
                         └──────────────────┘
 ```
 
