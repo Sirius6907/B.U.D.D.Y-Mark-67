@@ -39,3 +39,21 @@ def test_match_workflow_recipe_routes_bluetooth_process_and_settings_requests():
     assert processes is not None and processes.intent_family == "process_view"
     assert settings is not None and settings.intent_family == "settings_open"
 
+
+def test_match_workflow_recipe_handles_typos_and_adjacent_message():
+    recipe = match_workflow_recipe("open whhatsapp and message Raja Hii")
+
+    assert recipe is not None
+    assert recipe.intent_family == "send_message"
+    assert recipe.steps[0].parameters["receiver"] == "Raja"
+    assert recipe.steps[0].parameters["message_text"] == "Hii"
+
+
+def test_match_workflow_recipe_handles_empty_message_text():
+    recipe = match_workflow_recipe("open whhatsapp and message Raja")
+
+    assert recipe is not None
+    assert recipe.intent_family == "open_chat"
+    assert recipe.steps[0].parameters["receiver"] == "Raja"
+    assert recipe.steps[0].parameters["message_text"] == ""
+

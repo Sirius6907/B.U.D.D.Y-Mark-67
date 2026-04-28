@@ -162,6 +162,8 @@ _TOOL_REGISTRY: dict[str, Callable[..., str]] = {
     "recovery_manager":     _make_standard_tool("actions.recovery_manager", "recovery_manager"),
     "vault_manager":        _make_standard_tool("actions.vault_manager", "vault_manager"),
     "privacy_hardener":     _make_standard_tool("actions.privacy_hardener", "privacy_hardener"),
+    # Kali Linux WSL Adapter (25+ tools via governed bridge)
+    "kali_tool":            _make_standard_tool("tools.kali_adapter", "kali_tool"),
 
     # ── Developer & Code ──────────────────────────────────────────────────
     "code_helper":          _make_speak_tool("actions.code_helper", "code_helper"),

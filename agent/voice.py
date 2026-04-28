@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import asyncio
 import json
-from buddy_logging import get_logger
-import re
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable
 
-from config import get_api_key
+from buddy_logging import get_logger
+from agent.dp_brain import get_dp_brain
+from agent.dp_core import build_subproblem_key
+from agent.intent_compiler import CommandShape, CompiledCommand, IntentCompiler
+from agent.models import SubproblemValue, TaskPlan, WorkflowRecipe
 from agent.personality import (
     build_action_failure_reply,
     build_action_success_reply,
@@ -19,77 +22,39 @@ from agent.personality import (
 from agent.planner import create_plan
 from agent.runtime import RuntimeCoordinator
 from agent.screen_workflow import run_workflow
-from agent.workflow_recipes import match_workflow_recipe
+from agent.workflow_recipes import match_workflow_recipe, warm_preload_workflows
 
 logger = get_logger("agent.voice")
-
-
-# ---------------------------------------------------------------------------
-# System Prompts
-# ---------------------------------------------------------------------------
 
 INTENT_SYSTEM_PROMPT = """You are an intent classifier for B.U.D.D.Y (SIRIUS Mk 67), a personal AI assistant
 that can control the user's computer. You will receive the user's latest message AND recent conversation history.
 
 Classify the user's LATEST message into exactly ONE of these categories:
 
-1. "action" — Anything that requires interacting with the computer or inspecting its
+1. "action" - Anything that requires interacting with the computer or inspecting its
    real-time state. This includes:
    - Opening/closing apps, searching the web, controlling the browser, managing files,
      playing music, taking screenshots, coding tasks, etc.
-     E.g. "open youtube", "search for recipes", "play suave song",
-     "write a python script", "take a screenshot", "open notepad".
-   - SCREEN / SYSTEM AWARENESS queries — any question about what is currently
+   - SCREEN / SYSTEM AWARENESS queries - any question about what is currently
      happening on the device, what is visible on screen, or what the system is doing.
-     These REQUIRE real-time inspection tools (screen capture, browser tab enumeration, IDE project tracking)
-     and CANNOT be answered from memory alone.
-     E.g. "what video is playing on YouTube?", "what song is playing?",
-     "how many tabs are open?", "how many browsers are running?",
-     "what is on my screen right now?", "is Spotify open?",
-     "what apps are currently running?", "show me my desktop",
-     "what website am I on?", "what's the title of the current tab?",
-     "what was I working on recently?".
 
-2. "chat" — Greetings, small talk, questions about BUDDY itself, personal questions,
+2. "chat" - Greetings, small talk, questions about BUDDY itself, personal questions,
    general knowledge questions, opinions, jokes, emotional sharing, or anything that
    can be answered conversationally from general knowledge or session context.
-   E.g. "hello", "who are you?", "who am i?", "what time is it?",
-   "tell me a joke", "how are you?", "what can you do?",
-   "what is quantum physics?", any non-English greeting,
-   "my name is John", "remember that I like pizza", "I'm feeling sad today",
-   "what did you just do?" (referring to BUDDY's last action, answerable from history).
-
-CRITICAL RULE: If the user asks about the CURRENT STATE of the device, screen,
-browser tabs, running apps, or media playback — it is ALWAYS "action", even if
-it sounds like a question. BUDDY cannot see the screen without using tools.
 
 Reply with ONLY the single word: chat OR action
 Nothing else."""
 
 CHAT_SYSTEM_PROMPT = """You are B.U.D.D.Y (SIRIUS Mk 67), a highly intelligent personal AI assistant.
-You speak like a refined, witty AI butler — similar to B.U.D.D.Y. from Iron Man.
-Address the user as "Buddy" naturally. Keep responses concise (1-3 sentences max).
-Be helpful, warm, and knowledgeable. You can answer general knowledge questions,
-hold conversations, and provide information from your training data.
-If asked about yourself: you are BUDDY, an AI assistant running on the user's local machine,
-capable of controlling their computer, browsing the web, managing files, and more.
-Always respond in English unless the user explicitly asks for another language or translation.
+You speak like a refined, witty AI butler. Address the user as "Buddy" naturally.
+Keep responses concise (1-3 sentences max). Always respond in English unless asked otherwise.
 
 CRITICAL: You have a persistent memory system. Below you will find:
-1. [LONG-TERM MEMORY] — Facts you've stored about the user and the world.
-2. [RECENT CONVERSATION] — The last few exchanges in this session.
-3. [RELEVANT CONTEXT] — Semantically retrieved memories related to the current query.
+1. [LONG-TERM MEMORY]
+2. [RECENT CONVERSATION]
+3. [RELEVANT CONTEXT]
 
-USE THIS INFORMATION to answer accurately and personally. If the user asks "who am I?",
-use the identity facts from memory. If asked what video/song is playing, use session history.
-Always act as if you truly know the user.
-
-When the user tells you personal information (name, preferences, goals, etc.),
-acknowledge it warmly and confirm you'll remember it.
-
-For successful actions, never narrate internal memory recall, never repeat the raw command back,
-and never answer like a status log. Confirm the real-world result naturally, like a close and capable
-friend who just handled it, then offer the next step briefly."""
+USE THIS INFORMATION to answer accurately and personally."""
 
 MEMORY_EXTRACT_PROMPT = """You are a memory extraction system for an AI assistant.
 Analyze the conversation below and extract ANY new facts worth remembering about the user.
@@ -97,18 +62,9 @@ Analyze the conversation below and extract ANY new facts worth remembering about
 Return a JSON object with categories as keys and key-value pairs as values.
 Categories: identity, preferences, projects, relationships, wishes, notes, emotions
 
-Example output:
-{
-  "identity": {"name": "Chandan Kumar Behera", "nickname": "Sirius", "university": "Centurion University"},
-  "preferences": {"favorite_music": "suave"},
-  "wishes": {"life_goal": "become the first billionaire in bloodline"}
-}
-
 If there is NOTHING new to extract, return exactly: {}
 Return ONLY valid JSON. No markdown, no explanation."""
 
-
-# Use the same model for all internal calls to avoid burning separate quotas
 _FAST_MODEL = "gemini-2.5-flash"
 
 
@@ -120,40 +76,24 @@ class VoiceSessionState:
 
 
 class VoiceOrchestrator:
-    """
-    Connects voice/text commands to the supervised runtime while preserving the
-    existing main.py integration surface.
-
-    Routes user inputs through an intent classifier:
-      - "chat" intents get a memory-augmented conversational Gemini response.
-      - "action" intents are decomposed into tool-based plans via the Planner.
-
-    Memory Architecture:
-      - Conversation History: Rolling deque of recent exchanges (session memory)
-      - Long-Term Memory: SQLite + ChromaDB via HybridMemory (persistent facts)
-      - RAG Context: Semantic search against stored memories for relevant recall
-      - Auto-Extraction: After each chat, extracts new facts from conversation
-    """
-
-    MAX_HISTORY = 30  # Keep last 30 exchanges in session
+    MAX_HISTORY = 30
 
     def __init__(self, api_key: str | None = None, speak_fn: Callable | None = None):
         self.api_key = api_key
         self.speak = speak_fn or (lambda text: None)
         self.state = VoiceSessionState()
         self.runtime = RuntimeCoordinator(api_key, speak_fn)
-
-        # Session conversation history (rolling window)
+        self.dp_brain = get_dp_brain()
+        self.intent_compiler = IntentCompiler()
+        warm_preload_workflows(self.dp_brain)
         self.conversation_history: deque[dict] = deque(maxlen=self.MAX_HISTORY)
-
-        # Persistent memory (lazy-loaded)
         self._memory = None
 
     def _get_memory(self):
-        """Lazy-load the HybridMemory singleton."""
         if self._memory is None:
             try:
                 from memory.memory_manager import get_memory
+
                 self._memory = get_memory()
             except Exception as exc:
                 logger.warning("Failed to load HybridMemory: %s", exc)
@@ -171,261 +111,325 @@ class VoiceOrchestrator:
     def interrupt(self) -> None:
         self.state.is_speaking = False
 
-    # ------------------------------------------------------------------
-    # Memory helpers
-    # ------------------------------------------------------------------
     def _format_history_for_prompt(self) -> str:
-        """Format recent conversation history as a readable string."""
         if not self.conversation_history:
             return ""
         lines = []
         for entry in self.conversation_history:
-            role = entry.get("role", "unknown")
-            text = entry.get("text", "")
-            prefix = "User" if role == "user" else "BUDDY"
-            lines.append(f"  {prefix}: {text}")
+            prefix = "User" if entry.get("role") == "user" else "BUDDY"
+            lines.append(f"  {prefix}: {entry.get('text', '')}")
         return "\n".join(lines)
 
     def _build_memory_context(self, query: str) -> str:
-        """Build a rich context string from all memory sources."""
         sections = []
-
         mem = self._get_memory()
         if mem is None:
             return ""
 
-        # 1. Long-term structured memory
         try:
             from memory.memory_manager import format_memory_for_prompt
-            all_mem = mem.get_all_memory()
-            formatted = format_memory_for_prompt(all_mem)
+
+            formatted = format_memory_for_prompt(mem.get_all_memory())
             if formatted.strip():
                 sections.append(f"[LONG-TERM MEMORY]\n{formatted}")
         except Exception as exc:
             logger.debug("Failed to load long-term memory: %s", exc)
 
-        # 2. Recent conversation history
+        try:
+            user_profile = mem.get_user_profile()
+            if user_profile.strip():
+                sections.append(f"[USER PROFILE]\n{user_profile}")
+        except Exception as exc:
+            logger.debug("Failed to load user profile: %s", exc)
+
+        try:
+            soul_profile = mem.get_soul_profile()
+            if soul_profile.strip():
+                sections.append(f"[BUDDY SOUL]\n{soul_profile}")
+        except Exception as exc:
+            logger.debug("Failed to load soul profile: %s", exc)
+
         history = self._format_history_for_prompt()
         if history:
             sections.append(f"[RECENT CONVERSATION]\n{history}")
 
-        # 3. Semantic RAG recall — search memory for relevant facts
         try:
             results = mem.search_semantic(query, n_results=3)
             docs = results.get("documents", [[]])[0] if results else []
-            relevant = [d for d in docs if d and len(d) > 10]
+            relevant = [doc for doc in docs if doc and len(doc) > 10]
             if relevant:
-                sections.append("[RELEVANT CONTEXT]\n" + "\n".join(f"  - {d}" for d in relevant))
+                sections.append("[RELEVANT CONTEXT]\n" + "\n".join(f"  - {doc}" for doc in relevant))
         except Exception as exc:
             logger.debug("Semantic search failed: %s", exc)
 
         return "\n\n".join(sections) if sections else ""
 
     def _extract_and_save_memories(self, user_text: str, buddy_reply: str):
-        """Extract new facts from the conversation and persist them."""
         mem = self._get_memory()
         if mem is None:
             return
-
         try:
             from agent.llm_gateway import llm_generate_json
-
-            conversation_snippet = f"User: {user_text}\nBUDDY: {buddy_reply}"
+            from memory.memory_manager import update_memory
 
             extracted = llm_generate_json(
-                prompt=f"Conversation:\n{conversation_snippet}",
+                prompt=f"Conversation:\nUser: {user_text}\nBUDDY: {buddy_reply}",
                 system=MEMORY_EXTRACT_PROMPT,
                 gemini_model=_FAST_MODEL,
             )
-
             if not isinstance(extracted, dict) or not extracted:
                 return
-
-            # Save each extracted fact to memory
-            from memory.memory_manager import update_memory
             update_memory(extracted)
-
+            try:
+                mem.consolidate()
+            except Exception as exc:
+                logger.debug("Profile consolidation failed: %s", exc)
             fact_count = sum(len(v) if isinstance(v, dict) else 1 for v in extracted.values())
-            logger.info("💾 Saved %d new memory facts from conversation: %s", fact_count, list(extracted.keys()))
-
+            logger.info("Saved %d new memory facts from conversation: %s", fact_count, list(extracted.keys()))
         except json.JSONDecodeError:
             logger.debug("Memory extraction returned non-JSON")
         except Exception as exc:
             logger.debug("Memory extraction failed: %s", exc)
 
-    # ------------------------------------------------------------------
-    # Intent classification (context-aware)
-    # ------------------------------------------------------------------
+    def _build_action_context(self, text: str) -> dict:
+        lowered = text.lower()
+        tool_surface = "generic"
+        if any(platform in lowered for platform in ("whatsapp", "telegram", "signal", "discord", "messenger")):
+            tool_surface = "messaging"
+        elif "youtube" in lowered or "browser" in lowered or "chrome" in lowered:
+            tool_surface = "browser"
+        elif any(token in lowered for token in ("volume", "brightness", "bluetooth", "settings")):
+            tool_surface = "system_controls"
+        return {
+            "intent_family": "generic",
+            "tool_surface": tool_surface,
+            "state_snapshot": {
+                "tool_surface": tool_surface,
+                "recent_actions": list(self.conversation_history)[-3:],
+            },
+        }
+
+    @staticmethod
+    def _is_fast_path_eligible(command: CompiledCommand) -> bool:
+        return (
+            command.shape is CommandShape.SINGLE_ACTION
+            and not command.ambiguity_markers
+            and command.extracted_entities.get("platform") not in {"linkedin", "github"}
+        )
+
+    @staticmethod
+    def _should_skip_dp(command: CompiledCommand) -> bool:
+        return command.shape in {
+            CommandShape.COMPOUND_ACTION,
+            CommandShape.AMBIGUOUS,
+            CommandShape.HISTORY_QUESTION,
+        }
+
     def _classify_intent(self, text: str) -> str:
-        """Return 'chat' or 'action' using a context-aware LLM call with fallback."""
         try:
             from agent.llm_gateway import llm_generate
 
-            # Build input with conversation history for context
             history = self._format_history_for_prompt()
-            if history:
-                classify_input = f"[RECENT CONTEXT]\n{history}\n\n[LATEST MESSAGE]\n{text}"
-            else:
-                classify_input = text
-
+            classify_input = f"[RECENT CONTEXT]\n{history}\n\n[LATEST MESSAGE]\n{text}" if history else text
             result = llm_generate(
                 prompt=classify_input,
                 system=INTENT_SYSTEM_PROMPT,
                 gemini_model=_FAST_MODEL,
             )
             raw = result.text.strip().lower()
-            # Extract just the word in case model adds extras
             intent = raw.split()[0] if raw else "action"
-            if intent in ("chat", "action"):
+            if intent in {"chat", "action"}:
                 logger.info("Intent classified: %s (via %s)", intent, result.model)
                 return intent
-            logger.warning("Unexpected intent '%s', defaulting to action", raw)
             return "action"
-        except Exception as exc:
+        except Exception:
             logger.exception("Intent classification failed, defaulting to action")
             return "action"
 
-    # ------------------------------------------------------------------
-    # Conversational response (memory-augmented)
-    # ------------------------------------------------------------------
     def _chat_response(self, text: str) -> str:
-        """Get a memory-augmented conversational response with automatic fallback.
-
-        Uses the KernelOS ContextManager for deterministic prompt packing
-        when available, with a graceful fallback to the legacy approach.
-        """
         try:
             from agent.llm_gateway import llm_generate
 
-            # Build rich context from all memory sources
             memory_context = self._build_memory_context(text)
-
-            # ── Use ContextManager for deterministic prompt packing ──────
             full_system = CHAT_SYSTEM_PROMPT
-            try:
-                from agent.kernel import kernel
-                from core.memory.context_manager import SlotPriority
-
-                # Pack memory context into a prioritized slot
-                if memory_context:
-                    kernel.context.upsert(
-                        "chat_memory",
-                        f"--- MEMORY CONTEXT ---\n{memory_context}\n--- END MEMORY ---",
-                        SlotPriority.MEMORY,
-                    )
-
-                # Pack conversation history for next-turn reference
-                history = self._format_history_for_prompt()
-                if history:
-                    kernel.context.upsert(
-                        "chat_history",
-                        f"[RECENT CONVERSATION]\n{history}",
-                        SlotPriority.HISTORY,
-                    )
-
-                # Assemble the packed prompt
-                packed = kernel.context.pack()
-                full_system = f"{CHAT_SYSTEM_PROMPT}\n\n{packed}"
-            except Exception as ctx_exc:
-                # Fallback: manual assembly if ContextManager is unavailable
-                logger.debug("ContextManager unavailable, using legacy packing: %s", ctx_exc)
-                if memory_context:
-                    full_system += f"\n\n--- MEMORY CONTEXT ---\n{memory_context}\n--- END MEMORY ---"
-
+            if memory_context:
+                full_system += f"\n\n--- MEMORY CONTEXT ---\n{memory_context}\n--- END MEMORY ---"
             result = llm_generate(
                 prompt=text,
                 system=full_system,
                 gemini_model=_FAST_MODEL,
             )
             return result.text.strip()
-        except Exception as exc:
+        except Exception:
             logger.exception("Chat response generation failed")
             return build_internal_error_reply()
 
-    # ------------------------------------------------------------------
-    # Main command handler
-    # ------------------------------------------------------------------
+    async def _handle_chat_command(self, text: str) -> None:
+        self.conversation_history.append({"role": "user", "text": text})
+        reply = await asyncio.to_thread(self._chat_response, text)
+        self.start_response(reply)
+        self.conversation_history.append({"role": "assistant", "text": reply})
+        asyncio.get_event_loop().run_in_executor(None, self._extract_and_save_memories, text, reply)
+
+    async def _handle_compiled_action(self, command: CompiledCommand) -> None:
+        text = command.normalized_text
+        self.conversation_history.append({"role": "user", "text": f"[ACTION] {text}"})
+
+        try:
+            from agent.kernel import kernel
+
+            match = kernel.agents.route_by_text(text)
+            if match:
+                kernel.agents.activate(match.name)
+                logger.info("Agent routing: '%s' (score=%.2f) for: %s", match.name, match.score, text[:60])
+        except Exception as route_exc:
+            logger.debug("Agent routing skipped: %s", route_exc)
+
+        action_context = await asyncio.to_thread(self._build_action_context, text)
+        action_context["intent_shape"] = command.shape.value
+        if command.extracted_entities:
+            action_context["entities"] = command.extracted_entities
+
+        if self._is_fast_path_eligible(command):
+            try:
+                fast_recipe = await asyncio.to_thread(self.dp_brain.fast_lookup, text)
+                if fast_recipe is not None:
+                    workflow_result = await self.runtime.execute_workflow(fast_recipe, run_workflow)
+                    reply = build_workflow_success_reply(fast_recipe, workflow_result) if workflow_result.status == "success" else build_workflow_failure_reply(fast_recipe, workflow_result)
+                    self.start_response(reply)
+                    self.conversation_history.append({"role": "assistant", "text": reply})
+                    return
+            except Exception as exc:
+                logger.debug("Fast-path lookup failed: %s", exc)
+
+        if not self._should_skip_dp(command):
+            try:
+                dp_match = await asyncio.to_thread(self.dp_brain.compose, text, action_context)
+                if dp_match is not None:
+                    logger.info("DP Hit: reusing cached solution for: %s", text)
+                    if isinstance(dp_match, WorkflowRecipe):
+                        workflow_result = await self.runtime.execute_workflow(dp_match, run_workflow)
+                        reply = build_workflow_success_reply(dp_match, workflow_result) if workflow_result.status == "success" else build_workflow_failure_reply(dp_match, workflow_result)
+                        self.start_response(reply)
+                        self.conversation_history.append({"role": "assistant", "text": reply})
+                        return
+                    if isinstance(dp_match, TaskPlan):
+                        success = await self.runtime.execute_plan(dp_match)
+                        reply = build_action_success_reply(dp_match.goal) if success else build_action_failure_reply(dp_match.goal)
+                        self.start_response(reply)
+                        self.conversation_history.append({"role": "assistant", "text": reply})
+                        return
+            except Exception as dp_exc:
+                logger.debug("DP lookup/execution failed: %s", dp_exc)
+
+        if command.shape is CommandShape.CAREER_WORKFLOW:
+            try:
+                from career.orchestrator import CareerOrchestrator
+
+                orchestrator = CareerOrchestrator(
+                    self._get_memory(),
+                    approval_callback=self.runtime.runtime.approval_callback,
+                )
+                result = await orchestrator.handle_command(text)
+                self.runtime.runtime.status.pending_approval = result.needs_approval
+                self.runtime.runtime.status.active_draft_id = str(result.observations.get("draft_id", ""))
+                self.runtime.runtime.status.current_goal = text
+                self.runtime.runtime.status.current_step = result.observations.get("stage", "")
+                self.runtime.runtime._emit_status()
+                self.start_response(result.summary)
+                self.conversation_history.append({"role": "assistant", "text": result.summary})
+                return
+            except Exception as exc:
+                logger.debug("Career orchestration unavailable, falling back to planner: %s", exc)
+
+        recipe = None
+        if command.shape is CommandShape.SINGLE_ACTION:
+            recipe = await asyncio.to_thread(match_workflow_recipe, text)
+        if recipe is not None:
+            action_context["intent_family"] = recipe.intent_family
+            workflow_result = await self.runtime.execute_workflow(recipe, run_workflow)
+            if workflow_result.status == "success":
+                try:
+                    key = build_subproblem_key(text, action_context)
+                    recipe_payload = recipe.model_dump() if hasattr(recipe, "model_dump") else recipe.dict()
+                    self.dp_brain.store_success(
+                        key,
+                        SubproblemValue(
+                            solution_type="workflow_recipe",
+                            solution_payload=recipe_payload,
+                            status="solved",
+                            confidence=1.0,
+                            solution_steps=recipe_payload["steps"],
+                            evidence={"recipe": recipe_payload},
+                            verified_boundaries={"solution_type": "workflow_recipe"},
+                        ),
+                    )
+                except Exception as dp_store_exc:
+                    logger.debug("Failed to store workflow success in DP: %s", dp_store_exc)
+                reply = build_workflow_success_reply(recipe, workflow_result)
+            else:
+                reply = build_workflow_failure_reply(recipe, workflow_result)
+            self.start_response(reply)
+            self.conversation_history.append({"role": "assistant", "text": reply})
+            return
+
+        plan = await asyncio.to_thread(create_plan, text)
+        if not plan.nodes:
+            reply = build_planning_failure_reply()
+            self.start_response(reply)
+            self.conversation_history.append({"role": "assistant", "text": reply})
+            self.interrupt()
+            return
+
+        success = await self.runtime.execute_plan(plan)
+        action_context["intent_family"] = plan.metadata.get("intent_family", "generic")
+        try:
+            key = build_subproblem_key(text, action_context)
+            plan_payload = plan.model_dump() if hasattr(plan, "model_dump") else plan.dict()
+            value = SubproblemValue(
+                solution_type="task_plan",
+                solution_payload=plan_payload,
+                status="solved" if success else "failed",
+                confidence=1.0,
+                negative_reason=None if success else "plan_execution_failed",
+                solution_steps=plan_payload["nodes"],
+                evidence={"plan": plan_payload},
+                verified_boundaries={"solution_type": "task_plan"},
+            )
+            if success:
+                self.dp_brain.store_success(key, value)
+            else:
+                self.dp_brain.store_failure(key, value)
+        except Exception as dp_store_exc:
+            logger.debug("Failed to store plan outcome in DP: %s", dp_store_exc)
+
+        reply = build_action_success_reply(plan.goal) if success else build_action_failure_reply(plan.goal)
+        self.start_response(reply)
+        self.conversation_history.append({"role": "assistant", "text": reply})
+
     async def handle_user_command(self, text: str) -> None:
-        import asyncio
+        compiled_commands = self.intent_compiler.compile(text)
+        if not compiled_commands:
+            logger.info("Suppressed duplicate or empty command: %s", text)
+            return
 
         logger.info("Processing intent: %s", text)
         self.state.is_listening = False
         self.state.last_transcript = text
 
         try:
-            # Step 1: Classify intent (with conversation context)
-            intent = await asyncio.to_thread(self._classify_intent, text)
-
-            if intent == "chat":
-                # Add user message to conversation history
-                self.conversation_history.append({"role": "user", "text": text})
-
-                # Direct conversational response with full memory context
-                reply = await asyncio.to_thread(self._chat_response, text)
-                self.start_response(reply)
-
-                # Add BUDDY's reply to conversation history
-                self.conversation_history.append({"role": "assistant", "text": reply})
-
-                # Background: extract and save new facts from this exchange
-                asyncio.get_event_loop().run_in_executor(
-                    None, self._extract_and_save_memories, text, reply
-                )
-                return
-
-            # Step 2: Action intent — route through the Planner
-            # Record the action in conversation history so future questions can reference it
-            self.conversation_history.append({"role": "user", "text": f"[ACTION] {text}"})
-
-            # ── Hub-and-Spoke: Route to best-fit agent ───────────────────
-            try:
-                from agent.kernel import kernel
-                match = kernel.agents.route_by_text(text)
-                if match:
-                    kernel.agents.activate(match.name)
-                    logger.info(
-                        "Agent routing: '%s' (score=%.2f) for: %s",
-                        match.name, match.score, text[:60],
-                    )
-            except Exception as route_exc:
-                logger.debug("Agent routing skipped: %s", route_exc)
-
-            recipe = await asyncio.to_thread(match_workflow_recipe, text)
-            if recipe is not None:
-                logger.info(
-                    "Using workflow recipe: intent=%s, steps=%d",
-                    recipe.intent_family,
-                    len(recipe.steps),
-                )
-                workflow_result = await self.runtime.execute_workflow(recipe, run_workflow)
-                if workflow_result.status == "success":
-                    reply = build_workflow_success_reply(recipe, workflow_result)
-                    self.start_response(reply)
-                    self.conversation_history.append({"role": "assistant", "text": reply})
+            for command in compiled_commands:
+                intent = await asyncio.to_thread(self._classify_intent, command.normalized_text)
+                if intent == "chat" and command.shape not in {
+                    CommandShape.STATE_QUESTION,
+                    CommandShape.HISTORY_QUESTION,
+                    CommandShape.CAREER_WORKFLOW,
+                }:
+                    await self._handle_chat_command(command.normalized_text)
                 else:
-                    reply = build_workflow_failure_reply(recipe, workflow_result)
-                    self.start_response(reply)
-                    self.conversation_history.append({"role": "assistant", "text": reply})
-                return
-
-            plan = await asyncio.to_thread(create_plan, text)
-            if not plan.nodes:
-                self.start_response(build_planning_failure_reply())
-                self.conversation_history.append({"role": "assistant", "text": "Failed to create a plan for this task."})
-                self.interrupt()
-                return
-
-            success = await self.runtime.execute_plan(plan)
-            if success:
-                reply = build_action_success_reply(plan.goal)
-                self.start_response(reply)
-                self.conversation_history.append({"role": "assistant", "text": reply})
-            else:
-                reply = build_action_failure_reply(plan.goal)
-                self.start_response(reply)
-                self.conversation_history.append({"role": "assistant", "text": reply})
-        except Exception as e:
-            logger.exception("VoiceOrchestrator error: %s", e)
+                    await self._handle_compiled_action(command)
+        except Exception as exc:
+            logger.exception("VoiceOrchestrator error: %s", exc)
             self.start_response(build_internal_error_reply())
         finally:
             self.interrupt()

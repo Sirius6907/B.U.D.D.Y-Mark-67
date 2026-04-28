@@ -51,17 +51,40 @@ class TelegramBot:
             logger.info("Telegram bot token not provided. Bot will not start.")
             return
 
-        self.application = Application.builder().token(token).build()
+        while True:
+            try:
+                self.application = Application.builder().token(token).build()
 
-        self.application.add_handler(CommandHandler("start", self._start_cmd))
-        self.application.add_handler(CommandHandler("tts", self._tts_cmd))
-        self.application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self._handle_text))
-        self.application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, self._handle_voice))
+                self.application.add_handler(CommandHandler("start", self._start_cmd))
+                self.application.add_handler(CommandHandler("tts", self._tts_cmd))
+                self.application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), self._handle_text))
+                self.application.add_handler(MessageHandler(filters.VOICE | filters.AUDIO, self._handle_voice))
 
-        await self.application.initialize()
-        await self.application.start()
-        await self.application.updater.start_polling()
-        logger.info("Telegram bot started successfully.")
+                await self.application.initialize()
+                await self.application.start()
+                await self.application.updater.start_polling()
+                logger.info("Telegram bot started successfully.")
+                while True:
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                logger.info("Telegram bot task cancelled, shutting down.")
+                raise
+            except Exception as e:
+                logger.error(f"Telegram bot failed to start: {e}")
+                print(f"[Telegram] ⚠️ Connection failed: {e}. Retrying in 30s...")
+                try:
+                    if self.application:
+                        if self.application.updater:
+                            await self.application.updater.stop()
+                        await self.application.stop()
+                        await self.application.shutdown()
+                except Exception:
+                    pass
+                self.application = None
+                try:
+                    await asyncio.sleep(30)
+                except asyncio.CancelledError:
+                    raise
 
     async def stop(self):
         if self.application:

@@ -78,6 +78,21 @@ def _normalize(raw: str) -> str:
     return raw  
 
 def _launch_windows(app_name: str) -> bool:
+    try:
+        import pygetwindow as gw
+        windows = gw.getWindowsWithTitle(app_name)
+        if windows:
+            win = windows[0]
+            try:
+                if win.isMinimized:
+                    win.restore()
+                win.activate()
+                time.sleep(1.0)
+                return True
+            except Exception as act_err:
+                print(f"[open_app] pygetwindow activate failed for {app_name}: {act_err}")
+    except Exception as gw_err:
+        print(f"[open_app] pygetwindow check failed for {app_name}: {gw_err}")
 
     if shutil.which(app_name) or shutil.which(app_name.split(".")[0]):
         try:

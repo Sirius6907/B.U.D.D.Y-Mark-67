@@ -1,7 +1,12 @@
 import asyncio
 
-from agent.models import ActionResult, RiskTier, TaskNode
+from agent.models import ActionResult, PermissionScope, RiskTier, TaskNode
+from agent.policy import PolicyEngine
 from agent.runtime import AgentRuntime, RuntimeStatus
+
+
+def _all_scopes_policy():
+    return PolicyEngine(granted_scopes=set(PermissionScope))
 
 
 class FakeExecutor:
@@ -71,6 +76,7 @@ def test_runtime_status_defaults_to_idle():
 def test_runtime_stops_when_approval_denied():
     runtime = AgentRuntime(
         executor=FakeExecutor(),
+        policy=_all_scopes_policy(),
         approval_callback=lambda message: False,
     )
     nodes = [
@@ -92,7 +98,7 @@ def test_runtime_coordinator_execute_workflow_respects_approval():
     from agent.models import WorkflowRecipe, WorkflowStep, WorkflowVerification
     from agent.runtime import RuntimeCoordinator
 
-    coordinator = RuntimeCoordinator(approval_callback=lambda message: False)
+    coordinator = RuntimeCoordinator(approval_callback=lambda message: False, policy=_all_scopes_policy())
     recipe = WorkflowRecipe(
         recipe_id="send_message_test",
         intent_family="send_message",

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Tuple
 
 from buddy_logging import get_logger
+from agent.repair_engine import RepairEngine
 from agent.models import ActionResult, TaskNode
 
 logger = get_logger("agent.verifier")
@@ -127,16 +128,22 @@ class VerificationEngine:
     to rule-based acceptance (never blocks the pipeline).
     """
 
-    def __init__(self, api_key: str | None = None, enable_vision: bool = True):
+    def __init__(
+        self,
+        api_key: str | None = None,
+        enable_vision: bool = True,
+        repair_engine: RepairEngine | None = None,
+    ):
         self.api_key = api_key
         self.enable_vision = enable_vision
+        self.repair_engine = repair_engine or RepairEngine()
 
     async def verify(self, node: TaskNode, result: ActionResult) -> Tuple[bool, str]:
         """Async verification entry point with vision support."""
         # ── Phase 1: Rule-based check (fast, deterministic) ───────────────
         rule_ok, rule_reason = self._rule_check(node, result)
         if not rule_ok:
-            return False, rule_reason
+            return False, self._repair_critique(node, result, rule_reason)
 
         # ── Phase 2: Vision confirmation gate (if applicable) ─────────────
         if self.enable_vision and self._needs_vision(node):
@@ -153,7 +160,7 @@ class VerificationEngine:
         # ── Phase 1: Rule-based check ─────────────────────────────────────
         rule_ok, rule_reason = self._rule_check(node, result)
         if not rule_ok:
-            return False, rule_reason
+            return False, self._repair_critique(node, result, rule_reason)
 
         # ── Phase 2: Vision confirmation (sync) ───────────────────────────
         if self.enable_vision and self._needs_vision(node):
@@ -237,3 +244,15 @@ class VerificationEngine:
             f"Look at the current screen and determine if the task was completed successfully. "
             f"Answer YES or NO followed by a one-sentence reason."
         )
+
+    def _repair_critique(self, node: TaskNode, result: ActionResult, reason: str) -> str:
+        repair = self.repair_engine.repair(
+            reason,
+            {
+                "tool": node.tool,
+                "objective": node.objective,
+                "parameters": node.parameters,
+                "semantic_selectors": result.observations.get("semantic_selectors", []),
+            },
+        )
+        return f"{reason} | repair_strategy={repair.get('strategy', 'replan')}"

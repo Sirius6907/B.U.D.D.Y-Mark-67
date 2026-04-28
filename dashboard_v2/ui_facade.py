@@ -50,7 +50,34 @@ class _RootLoop:
 class ElectronLauncher:
     def __init__(self, app_dir: Path) -> None:
         self.app_dir = app_dir
-        self.process: subprocess.Popen[str] | None = None
+        self.next_process: subprocess.Popen[str] | None = None
+        self.electron_process: subprocess.Popen[str] | None = None
+        self._stop_event = threading.Event()
+        self._wait_thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        
+        class ProcessGroup:
+            def __init__(self, launcher):
+                self._launcher = launcher
+            def wait(self):
+                while not self._launcher._stop_event.is_set():
+                    p1 = self._launcher.next_process
+                    p2 = self._launcher.electron_process
+                    if p1 and p1.poll() is not None:
+                        return
+                    if p2 and p2.poll() is not None:
+                        return
+                    time.sleep(0.25)
+            def poll(self):
+                p1 = self._launcher.next_process
+                p2 = self._launcher.electron_process
+                if p1 and p1.poll() is not None:
+                    return p1.poll()
+                if p2 and p2.poll() is not None:
+                    return p2.poll()
+                return None
+                
+        self.process = ProcessGroup(self)
 
     def launch(self, bridge: DashboardBridge) -> None:
         if os.environ.get("BUDDY_DISABLE_WEB_UI_LAUNCH") == "1":
@@ -58,19 +85,62 @@ class ElectronLauncher:
         npm = "npm.cmd" if os.name == "nt" else "npm"
         env = os.environ.copy()
         env.setdefault("BUDDY_DASHBOARD_WS_URL", f"ws://{bridge.host}:{bridge.port}")
-        self.process = subprocess.Popen(
-            [npm, "run", "electron:dev"],
+        
+        # 1. Start Next.js dev server
+        self.next_process = subprocess.Popen(
+            f"{npm} run dev",
             cwd=self.app_dir,
             env=env,
             text=True,
+            shell=True,
         )
+        
+        # 2. Start a thread to wait for port 3000 and launch Electron
+        def wait_and_launch():
+            import socket
+            start_time = time.time()
+            while not self._stop_event.is_set() and time.time() - start_time < 60:
+                try:
+                    with socket.create_connection(("127.0.0.1", 3000), timeout=1):
+                        break
+                except (socket.timeout, ConnectionRefusedError):
+                    time.sleep(0.5)
+                    continue
+            
+            with self._lock:
+                if self._stop_event.is_set():
+                    return
+                    
+                # Launch Electron
+                self.electron_process = subprocess.Popen(
+                    f"{npm} run electron",
+                    cwd=self.app_dir,
+                    env=env,
+                    text=True,
+                    shell=True,
+                )
+                
+        self._wait_thread = threading.Thread(target=wait_and_launch, daemon=True)
+        self._wait_thread.start()
 
     def close(self) -> None:
-        process = self.process
-        if process is None:
-            return
-        if process.poll() is not None:
+        self._stop_event.set()
+        
+        with self._lock:
+            # Kill Electron
+            if self.electron_process is not None:
+                self._kill_process(self.electron_process)
+                self.electron_process = None
+                
+            # Kill Next.js
+            if self.next_process is not None:
+                self._kill_process(self.next_process)
+                self.next_process = None
+                
             self.process = None
+
+    def _kill_process(self, process: subprocess.Popen) -> None:
+        if process.poll() is not None:
             return
         try:
             if os.name == "nt":
@@ -89,8 +159,6 @@ class ElectronLauncher:
                 process.kill()
             except Exception:
                 pass
-        finally:
-            self.process = None
 
 
 class WebBuddyUI:

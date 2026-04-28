@@ -1,5 +1,12 @@
-from agent.models import RiskTier, TaskNode
-from agent.policy import PolicyDecision, decide_policy
+"""Tests for PolicyEngine (scope-aware + legacy sensitive-action checks)."""
+from agent.models import PermissionScope, RiskTier, TaskNode
+from agent.policy import PolicyDecision, PolicyEngine
+
+
+def _engine(**kw):
+    """Create a PolicyEngine with all scopes granted (so scope blocking doesn't
+    interfere with legacy-behavior tests)."""
+    return PolicyEngine(granted_scopes=set(PermissionScope), **kw)
 
 
 def test_send_message_requires_approval():
@@ -11,8 +18,8 @@ def test_send_message_requires_approval():
         expected_outcome="Message is sent",
         risk_tier=RiskTier.TIER_1,
     )
-
-    assert decide_policy(node) is PolicyDecision.REQUIRE_APPROVAL
+    check = _engine().check_node(node)
+    assert check.decision is PolicyDecision.REQUIRE_APPROVAL
 
 
 def test_open_chat_is_auto_execute():
@@ -24,8 +31,8 @@ def test_open_chat_is_auto_execute():
         expected_outcome="Chat opens",
         risk_tier=RiskTier.TIER_1,
     )
-
-    assert decide_policy(node) is PolicyDecision.AUTO_EXECUTE
+    check = _engine().check_node(node)
+    assert check.decision is PolicyDecision.AUTO_EXECUTE
 
 
 def test_open_app_as_admin_requires_approval():
@@ -37,5 +44,5 @@ def test_open_app_as_admin_requires_approval():
         expected_outcome="Command Prompt opens with elevation",
         risk_tier=RiskTier.TIER_3,
     )
-
-    assert decide_policy(node) is PolicyDecision.REQUIRE_APPROVAL
+    check = _engine().check_node(node)
+    assert check.decision is PolicyDecision.REQUIRE_APPROVAL

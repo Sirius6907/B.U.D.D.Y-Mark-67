@@ -75,6 +75,22 @@ def _open_app(app_name: str) -> bool:
 
     try:
         if os_name == "windows":
+            try:
+                import pygetwindow as gw
+                windows = gw.getWindowsWithTitle(app_name)
+                if windows:
+                    win = windows[0]
+                    try:
+                        if win.isMinimized:
+                            win.restore()
+                        win.activate()
+                        time.sleep(1.0)
+                        return True
+                    except Exception as act_err:
+                        print(f"[SendMessage] pygetwindow activate failed for {app_name}: {act_err}")
+            except Exception as gw_err:
+                print(f"[SendMessage] pygetwindow check failed for {app_name}: {gw_err}")
+
             pyautogui.press("win")
             time.sleep(0.5)
             _paste_text(app_name)

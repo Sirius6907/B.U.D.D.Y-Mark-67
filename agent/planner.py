@@ -778,6 +778,15 @@ def create_plan(goal: str, context: str = "") -> TaskPlan:
         logger.info("Using direct shutdown plan for: %s", goal[:80])
         return _direct_shutdown_plan(goal)
 
+    fast_route_plan = _build_fast_route_plan(goal)
+    if fast_route_plan is not None:
+        logger.info(
+            "Using deterministic fast-path plan: id=%s, intent=%s",
+            fast_route_plan.plan_id,
+            fast_route_plan.metadata.get("intent_family", "generic"),
+        )
+        return fast_route_plan
+
     user_input = f"Goal: {goal}"
     if context:
         user_input += f"\n\nContext: {context}"

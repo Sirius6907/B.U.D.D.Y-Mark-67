@@ -50,6 +50,7 @@ def _verify_step(step: WorkflowStep, result: ActionResult) -> tuple[bool, str]:
 def run_workflow(recipe: WorkflowRecipe, speak=None) -> ActionResult:
     context = WorkflowRunContext()
     last_error = ""
+    resume_from = int(recipe.metadata.get("dp_resume_from_step", 0) or 0)
 
     for index, step in enumerate(recipe.steps, start=1):
         if step.kind != "tool":
@@ -74,6 +75,7 @@ def run_workflow(recipe: WorkflowRecipe, speak=None) -> ActionResult:
                     "intent_family": recipe.intent_family,
                     "failed_step": index,
                     "completed_steps": context.completed_steps,
+                    "resume_from_step": resume_from,
                 },
                 retryable=result.retryable,
                 error_message=last_error,
@@ -89,6 +91,7 @@ def run_workflow(recipe: WorkflowRecipe, speak=None) -> ActionResult:
             "recipe_id": recipe.recipe_id,
             "intent_family": recipe.intent_family,
             "completed_steps": context.completed_steps,
+            "resume_from_step": resume_from,
         },
         changed_state=context.last_result.changed_state if context.last_result else {},
     )

@@ -6,7 +6,12 @@ import uuid
 from agent.models import RiskTier, WorkflowRecipe, WorkflowStep, WorkflowVerification
 
 
-_MESSAGE_PLATFORMS = ("whatsapp", "telegram", "signal", "discord", "messenger")
+_MESSAGE_PLATFORMS = ("whatsapp", "whats app", "whhatsapp", "whhats app", "telegram", "signal", "discord", "messenger")
+_COMMON_WORKFLOW_GOALS = (
+    "open whatsapp and search for contact Rajaa and open the chat",
+    "open youtube and play suave",
+    "open settings",
+)
 
 
 def _platform_name(goal: str) -> str:
@@ -140,39 +145,42 @@ def _build_message_recipe(goal: str) -> WorkflowRecipe | None:
 
     if "message" in lowered:
         message_text = _extract_message_text(goal)
-        if not message_text:
-            return None
-        return WorkflowRecipe(
-            recipe_id=_recipe_id("send_message"),
-            intent_family="send_message",
-            goal=goal,
-            steps=[
-                _tool_step(
-                    action="send_message",
-                    parameters={
-                        "receiver": receiver,
-                        "message_text": message_text,
-                        "platform": platform,
-                        "mode": "send",
-                    },
-                    verify_text="sent",
-                    timeout=30.0,
-                )
-            ],
-            requires_approval=True,
-            approval_tool="send_message",
-            approval_parameters={
-                "receiver": receiver,
-                "message_text": message_text,
-                "platform": platform,
-                "mode": "send",
-            },
-            risk_tier=RiskTier.TIER_1,
-            success_reply_key="send_message",
-            metadata={"platform": platform, "receiver": receiver, "message_text": message_text},
-        )
+        if message_text:
+            if receiver.lower().endswith(message_text.lower()):
+                receiver = receiver[:-len(message_text)].strip(" .\"'")
+                if not receiver:
+                    return None
+            return WorkflowRecipe(
+                recipe_id=_recipe_id("send_message"),
+                intent_family="send_message",
+                goal=goal,
+                steps=[
+                    _tool_step(
+                        action="send_message",
+                        parameters={
+                            "receiver": receiver,
+                            "message_text": message_text,
+                            "platform": platform,
+                            "mode": "send",
+                        },
+                        verify_text="sent",
+                        timeout=30.0,
+                    )
+                ],
+                requires_approval=True,
+                approval_tool="send_message",
+                approval_parameters={
+                    "receiver": receiver,
+                    "message_text": message_text,
+                    "platform": platform,
+                    "mode": "send",
+                },
+                risk_tier=RiskTier.TIER_1,
+                success_reply_key="send_message",
+                metadata={"platform": platform, "receiver": receiver, "message_text": message_text},
+            )
 
-    if any(token in lowered for token in ("open the chat", "open chat", "search for contact", "search contact", "find contact")):
+    if any(token in lowered for token in ("open the chat", "open chat", "search for contact", "search contact", "find contact", "message")) or receiver:
         return WorkflowRecipe(
             recipe_id=_recipe_id("open_chat"),
             intent_family="open_chat",
@@ -455,3 +463,36 @@ def match_workflow_recipe(goal: str) -> WorkflowRecipe | None:
         if recipe is not None:
             return recipe
     return None
+
+
+def warm_preload_workflows(dp_brain) -> None:
+    records = []
+    for goal in _COMMON_WORKFLOW_GOALS:
+        recipe = match_workflow_recipe(goal)
+        if recipe is None:
+            continue
+        key = dp_brain.state_encoder.build_key(
+            goal,
+            {"intent_family": recipe.intent_family, "tool_surface": recipe.metadata.get("platform", "generic")},
+        )
+        records.append(
+            {
+                "normalized_goal": key.normalized_goal,
+                "intent_family": key.intent_family,
+                "environment_signature": key.environment_signature,
+                "state_hash": key.state_hash,
+                "tool_surface": key.tool_surface,
+                "schema_version": key.schema_version,
+                "status": "solved",
+                "solution_steps": recipe.model_dump()["steps"],
+                "verified_boundaries": {"solution_type": "workflow_recipe"},
+                "confidence": 0.7,
+                "evidence": {"recipe": recipe.model_dump()},
+                "reward_score": 0.0,
+                "use_count": 0,
+                "created_at": None,
+                "updated_at": None,
+            }
+        )
+    if records:
+        dp_brain.warm_preload(records)

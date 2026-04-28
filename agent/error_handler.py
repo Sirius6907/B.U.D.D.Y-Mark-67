@@ -20,7 +20,14 @@ class ErrorDecision(Enum):
     RETRY       = "retry"      
     SKIP        = "skip"       
     REPLAN      = "replan"     
-    ABORT       = "abort"    
+    ABORT       = "abort"
+
+
+class ErrorCategory(Enum):
+    TRANSIENT = "transient"
+    PERMANENT = "permanent"
+    NEEDS_APPROVAL = "needs_approval"
+    NEEDS_CLARIFICATION = "needs_clarification"
 
 ERROR_ANALYST_PROMPT = """You are the error recovery module of BUDDY MARK LXVII AI assistant.
 
@@ -50,6 +57,17 @@ Return ONLY valid JSON:
 
 def _get_api_key() -> str:
     return get_api_key(required=True)
+
+
+def categorize_error(error: str) -> ErrorCategory:
+    lowered = error.lower()
+    if "requires administrator" in lowered or "requires admin" in lowered:
+        return ErrorCategory.NEEDS_APPROVAL
+    if "timeout" in lowered or "temporar" in lowered or "lock" in lowered:
+        return ErrorCategory.TRANSIENT
+    if "which one" in lowered or "ambiguous" in lowered or "clarify" in lowered:
+        return ErrorCategory.NEEDS_CLARIFICATION
+    return ErrorCategory.PERMANENT
 
 def analyze_error(
     step: dict,

@@ -529,6 +529,22 @@ class BuddyLive:
 
 
 
+    async def _run_telegram_bot_safe(self):
+        """Fault-isolated wrapper — Telegram failures never crash the TaskGroup."""
+        while True:
+            try:
+                await self.tg_bot.start()
+            except asyncio.CancelledError:
+                logger.info("Telegram bot task cancelled")
+                raise  # Let TaskGroup teardown propagate cleanly
+            except BaseException as e:
+                logger.warning("Telegram bot crashed, will retry in 30s: %s", e)
+                print(f"[BUDDY] ⚠️ Telegram bot error: {e}. Retrying in 30s...")
+                try:
+                    await asyncio.sleep(30)
+                except asyncio.CancelledError:
+                    raise
+
     async def run(self):
         # Phase 5: Initialize Local OS Kernel
         if not self._kernel_initialized:
@@ -563,7 +579,7 @@ class BuddyLive:
 
                     tg.create_task(self._listen_audio())
                     tg.create_task(self._process_microphone())
-                    tg.create_task(self.tg_bot.start())
+                    tg.create_task(self._run_telegram_bot_safe())
 
             except Exception as e:
                 logger.exception("Main loop voice pipeline failed")
