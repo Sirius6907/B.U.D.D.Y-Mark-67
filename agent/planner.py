@@ -66,6 +66,7 @@ TOOL_RISK_MAP: dict[str, RiskTier] = {
     "recovery_manager": RiskTier.TIER_3,
     "vault_manager": RiskTier.TIER_3,
     "privacy_hardener": RiskTier.TIER_3,
+    "nvidia_generate": RiskTier.TIER_1,
 }
 
 
@@ -245,6 +246,17 @@ vault_manager
 privacy_hardener
   action: "disable_telemetry" | "disable_ads" | "hardening_sweep" (required)
 
+nvidia_generate
+  action: "image" | "video" | "list_models" (required)
+  prompt: string (required for image/video) — detailed description of what to generate
+  model: string (optional) — specific model name, or omit for auto-selection
+  quality: "fast" | "balanced" | "quality" (optional, default: balanced)
+  width: integer (optional, default: 1024)
+  height: integer (optional, default: 1024)
+  steps: integer (optional, default: 30)
+  seed: integer (optional) — for reproducible results
+  negative_prompt: string (optional) — what to exclude from the image
+
 EXAMPLES:
 
 Goal: "research mechanical engineering and save it to a notepad file"
@@ -284,6 +296,16 @@ Goal: "Open the clock and set a reminder for 30 minutes later"
 Steps:
 
 reminder | date: [today], time: [now+30min], message: "Reminder"
+
+Goal: "Generate a cyberpunk cityscape wallpaper"
+Steps:
+
+nvidia_generate | action: image, prompt: "A futuristic cyberpunk cityscape at night with neon lights, rain-soaked streets, flying cars, and towering skyscrapers", quality: quality, width: 1920, height: 1080
+
+Goal: "Create a video of a spaceship flying through clouds"
+Steps:
+
+nvidia_generate | action: video, prompt: "A sleek silver spaceship flying through dramatic cumulus clouds at sunset, cinematic lighting, volumetric fog"
 
 OUTPUT — return ONLY valid JSON, no markdown, no explanation, no code blocks:
 {
@@ -700,6 +722,50 @@ def _build_fast_route_plan(goal: str) -> TaskPlan | None:
                 )
             ],
             metadata={"route": "fast_path", "intent_family": "process_view"},
+        )
+
+    # ── NVIDIA NIM image/video generation fast path ──
+    if any(kw in lowered for kw in ("generate", "create a video", "create an image",
+                                     "make a video", "make an image", "draw",
+                                     "render", "wallpaper", "illustration")):
+        gen_is_video = any(kw in lowered for kw in ("video", "animation", "clip", "footage"))
+        action = "video" if gen_is_video else "image"
+        # Derive quality from keywords
+        if any(kw in lowered for kw in ("quick", "fast", "draft", "rough")):
+            quality = "fast"
+        elif any(kw in lowered for kw in ("best", "highest", "premium", "quality", "4k", "8k")):
+            quality = "quality"
+        else:
+            quality = "balanced"
+        # Extract resolution hints
+        width, height = 1024, 1024
+        res_match = re.search(r'(\d{3,4})\s*[x×]\s*(\d{3,4})', lowered)
+        if res_match:
+            width, height = int(res_match.group(1)), int(res_match.group(2))
+        elif "wallpaper" in lowered or "1080" in lowered:
+            width, height = 1920, 1080
+        params = {
+            "action": action,
+            "prompt": goal,
+            "quality": quality,
+        }
+        if action == "image":
+            params["width"] = width
+            params["height"] = height
+        return TaskPlan(
+            plan_id=str(uuid.uuid4()),
+            goal=goal,
+            nodes=[
+                TaskNode(
+                    node_id="1",
+                    objective=f"Generate {action}: {goal[:120]}",
+                    tool="nvidia_generate",
+                    parameters=params,
+                    expected_outcome=f"{action.title()} generated and saved to disk",
+                    risk_tier=RiskTier.TIER_1,
+                )
+            ],
+            metadata={"route": "fast_path", "intent_family": f"nvidia_{action}"},
         )
 
     if re.search(r"\b(run|open|launch|start)\b", lowered):
