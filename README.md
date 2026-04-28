@@ -32,7 +32,7 @@ B.U.D.D.Y is a **Windows-native autonomous AI agent** that operates directly on 
 - **Run security tools** — governed Kali Linux integration for ethical hacking and pentesting
 - **Learn from you** — remembers preferences, indexes your documents, builds context over time
 
-This is not a wrapper around ChatGPT. This is a **supervised autonomous runtime** with 95+ native tools, a policy engine, rollback capabilities, and a real execution loop.
+This is not a wrapper around a Chatbot. This is a **supervised autonomous runtime** with 95+ native tools, a policy engine, rollback capabilities, and a real execution loop.
 
 ---
 
