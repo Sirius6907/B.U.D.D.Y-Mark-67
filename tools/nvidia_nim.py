@@ -140,10 +140,20 @@ ALL_MODELS = {**IMAGE_MODELS, **VIDEO_MODELS}
 # ─── NIM Client ──────────────────────────────────────────────────────────────
 
 def _get_nim_key() -> str:
-    """Retrieve NVIDIA NIM API key from environment."""
+    """Retrieve NVIDIA NIM API key from environment or .env file."""
     key = os.environ.get("NVIDIA_NIM_API_KEY", "").strip()
     if not key:
         key = os.environ.get("NVIDIA_API_KEY", "").strip()
+    if not key:
+        # Fall back to project .env file (matches load_config pattern)
+        try:
+            from config.runtime import load_env_file
+            env_data = load_env_file()
+            key = env_data.get("NVIDIA_NIM_API_KEY", "").strip()
+            if not key:
+                key = env_data.get("NVIDIA_API_KEY", "").strip()
+        except Exception:
+            pass
     if not key:
         raise RuntimeError(
             "NVIDIA NIM API key not found. "

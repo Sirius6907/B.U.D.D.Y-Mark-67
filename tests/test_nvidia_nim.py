@@ -216,8 +216,9 @@ class TestAPIKey:
             {"NVIDIA_NIM_API_KEY": "", "NVIDIA_API_KEY": ""},
             clear=False,
         ):
-            with pytest.raises(RuntimeError, match="API key not found"):
-                _get_nim_key()
+            with patch("config.runtime.load_env_file", return_value={}):
+                with pytest.raises(RuntimeError, match="API key not found"):
+                    _get_nim_key()
 
 
 # ─── NIMClient Tests ─────────────────────────────────────────────────────────
