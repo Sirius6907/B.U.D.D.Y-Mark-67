@@ -51,6 +51,7 @@ tests/.tmp_verifier/
 pytest-cache-files-*/
 htmlcov/
 .coverage
+.worktrees/
 
 # Web dashboard build artifacts
 node_modules/
