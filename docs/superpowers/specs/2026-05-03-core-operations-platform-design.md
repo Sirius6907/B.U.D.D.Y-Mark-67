@@ -11,10 +11,11 @@ Build the first production sub-project for a Windows-first AI operator that can 
 This sub-project establishes:
 
 - a strict domain-based tool layout
+- strict domain isolation between tool packages
 - thin tool files backed by shared native runtime helpers
 - centralized validation, risk gating, execution, verification, and result shaping
 - a first batch of 200 production-grade Windows-native tools
-- a stable brain-facing interface so later planning and orchestration layers can reason over capabilities instead of ad hoc functions
+- a capability registry and stable brain-facing interface so later planning and orchestration layers can reason over capabilities instead of ad hoc functions
 
 The intended outcome is not a toy assistant or prototype tool bundle. It is a maintainable Windows operations platform that the higher-level brain can use to control, monitor, inspect, manage, and automate the device in a consistent and production-safe way.
 
@@ -26,6 +27,7 @@ It should:
 
 - expose one production tool per concrete operation
 - organize tools by domain and keep implementations thin
+- enforce domain isolation so tools do not import sibling-domain tools directly
 - prefer native Windows APIs and stable OS surfaces over brittle hacks
 - support long tool chains with structured results and verification
 - distinguish clearly between read, write, destructive, and restricted behavior
@@ -59,6 +61,16 @@ It does not include:
 - full long-horizon planner redesign
 - new internet research or browser-first orchestration layers
 - non-Windows-first cross-platform abstractions
+
+## Required Enhancements
+
+The finalized spec also incorporates the following approved enhancements:
+
+- strict domain isolation with no cross-domain tool imports
+- extended tool contracts with idempotency, preconditions, and postconditions
+- a dedicated capability registry layer for discovery and planning
+- a slight local-domain rebalance toward processes over UI-heavy tooling
+- confidence scoring in the planning layer
 
 ## Approved Design Decisions
 
@@ -139,6 +151,7 @@ runtime\
   telemetry\
 
 registries\
+  capability_registry\
   tool_manifest\
   domain_index\
   aliases\
@@ -168,6 +181,11 @@ docs\
 - Root `actions\` should stop accumulating unrelated tool files.
 - Every new production tool belongs to exactly one domain folder.
 - One tool file equals one registered operation.
+- Tool files may import only:
+  - shared runtime modules
+  - shared registry metadata helpers
+  - same-domain private helpers when those helpers do not expose another tool
+- Tool files must not import executable tools from other domains.
 - Shared helpers and Windows integration code belong in `runtime\`, not in individual tool files.
 - Registry metadata should be explicit and queryable rather than inferred from imports alone.
 - Tests should be grouped by type so contract and safety coverage can be tracked separately from integration coverage.
@@ -191,6 +209,7 @@ It should not:
 - perform custom risk gating logic in arbitrary ways
 - construct free-form user-facing prose as its primary output
 - duplicate Windows parsing logic from sibling tools
+- call tool implementations from other domains directly
 
 ### Thin Tool Example Shape
 
@@ -247,6 +266,7 @@ class ToolRequest(TypedDict):
     correlation_id: str
     dry_run: bool
     timeout_s: int
+    idempotency_key: str | None
 ```
 
 ### Result Shape
@@ -265,6 +285,9 @@ class ToolResult(TypedDict):
     retryable: bool
     duration_ms: int
     error_code: str | None
+    idempotent: bool
+    preconditions: list[str]
+    postconditions: list[str]
 ```
 
 ### Contract Rules
@@ -274,6 +297,8 @@ class ToolResult(TypedDict):
 - `summary` remains concise and machine-safe so the brain can speak over it without parsing messy prose.
 - `verification` is always present, even if it reports `"not_applicable"` or `"not_performed"`.
 - `error_code` should come from a shared catalog, not arbitrary strings.
+- Every tool must declare whether it is idempotent under identical inputs and state.
+- Every tool must publish explicit preconditions and intended postconditions for planning and verification.
 - Tool outputs must be stable enough for planning, replanning, logging, and audit trails.
 
 ## Shared Runtime Architecture
@@ -292,6 +317,8 @@ The platform should execute every tool through a shared runtime pipeline:
 - metadata structures
 - error codes
 - verification record types
+- precondition and postcondition record types
+- idempotency metadata
 
 #### 2. Validation
 
@@ -387,6 +414,34 @@ Read tools do not need post-mutation checks, but their outputs still need schema
 
 This telemetry becomes critical later for tool ranking and planner confidence.
 
+## Capability Registry Layer
+
+Capability discovery should be its own layer rather than an incidental property of imports.
+
+`registries.capability_registry` is responsible for:
+
+- storing tool capability metadata in one queryable index
+- exposing tool lookup by domain, verb, aliases, risk level, and read/write class
+- exposing preconditions, postconditions, idempotency, verification support, and latency hints
+- supporting planner search without requiring the brain to inspect Python modules directly
+
+This registry should become the planner’s source of truth for candidate tool discovery.
+
+Each tool registration should emit:
+
+- canonical tool name
+- domain
+- operation verb
+- synonyms and intent aliases
+- risk level
+- idempotent flag
+- preconditions
+- postconditions
+- verification support mode
+- reversible flag
+- retryable flag
+- native-first or UI-fallback classification
+
 ## Risk Model
 
 The risk model is part of the core platform, not a side feature.
@@ -463,12 +518,12 @@ The first implementation batch is intentionally broad but not shallow:
 
 - Files: `45`
 - Storage: `25`
-- Processes: `20`
+- Processes: `26`
 - Apps: `10`
 - Services: `10`
-- Windows: `10`
-- Input: `8`
-- Clipboard: `4`
+- Windows: `8`
+- Input: `5`
+- Clipboard: `3`
 - Screen: `4`
 - Printers (local side): `4`
 
@@ -679,6 +734,7 @@ Each tool should publish metadata including:
 - parameter schema
 - risk level
 - read/write classification
+- idempotent or non-idempotent behavior
 - retryability
 - reversibility
 - preconditions
@@ -698,9 +754,29 @@ The brain layer should be able to:
 - search candidate tools by capability metadata
 - prefer read/inspect tools first when context is incomplete
 - plan multi-step sequences with preconditions and postconditions
+- score candidate plans by confidence before execution
 - request approval when the next step crosses a HIGH gate
 - replan on failure, timeout, blocked action, or failed verification
 - summarize actions in concise operator-style language
+
+### Planner Confidence Scoring
+
+The planning layer should assign a confidence score to candidate plans and major steps.
+
+Confidence should consider:
+
+- match strength between user intent and capability aliases
+- whether required entities were resolved cleanly
+- whether preconditions are satisfied
+- whether the chosen tool is native-first or only a UI fallback
+- recent reliability telemetry for the tool or domain
+- ambiguity remaining after the inspect phase
+
+Low-confidence plans should bias toward:
+
+- more read/inspect steps before mutation
+- narrower-scoped actions
+- explicit approval or clarification when risk and ambiguity intersect
 
 ### Sequence Design Principle
 
@@ -758,9 +834,10 @@ The migration path for this sub-project should be:
 1. establish shared runtime contracts and helpers
 2. establish domain folder structure
 3. introduce manifest and capability metadata
-4. migrate or replace existing overlapping tools domain by domain
-5. register first 200 tools through the new structure
-6. adapt the brain/runtime to prefer structured results from the new platform
+4. introduce capability registry lookup surfaces for the planner
+5. migrate or replace existing overlapping tools domain by domain
+6. register first 200 tools through the new structure
+7. adapt the brain/runtime to prefer structured results and capability registry lookups from the new platform
 
 The existing system should remain runnable during migration. This is an incremental platform build, not a full stop-and-rewrite.
 
@@ -771,10 +848,12 @@ This sub-project is successful when:
 - the repository has a clear domain-based structure for production tools
 - the first 200 tools are implemented as thin files over shared native helpers
 - all tools share one contract model for validation, execution, and result shaping
+- all tools obey domain isolation rules
 - mutating tools verify post-state where practical
 - read tools return structured outputs consistently
 - the risk gating model is enforced centrally
-- the brain can query capabilities and consume structured results without relying on tool-specific parsing
+- the capability registry is the planner’s source of discovery truth
+- the brain can query capabilities, score plans by confidence, and consume structured results without relying on tool-specific parsing
 
 ## Next Step
 
