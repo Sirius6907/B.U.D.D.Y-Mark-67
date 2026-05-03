@@ -1,11 +1,11 @@
 <div align="center">
 
-![SIRIUS Hero Image](assets/hero.png)
+![B.U.D.D.Y Hero Image](assets/hero.png)
 
-# 🌌 SIRIUS (Buddy MK67)
+# 🌌 B.U.D.D.Y (Mark 67)
 ### *The Autonomous AI OS Operator*
 
-**SIRIUS** is a state-of-the-art autonomous agent designed to bridge the gap between human intent and complex operating system execution. Unlike chat-based agents, SIRIUS uses a deterministic toolset and a self-healing recovery engine to **act, verify, and replan** across both the web and your local environment.
+**B.U.D.D.Y** is a state-of-the-art autonomous agent designed to bridge the gap between human intent and complex operating system execution. Unlike chat-based agents, B.U.D.D.Y uses a deterministic toolset and a self-healing recovery engine to **act, verify, and replan** across both the web and your local environment.
 
 <p>
   <img src="https://img.shields.io/badge/Status-Release--Candidate--1-blue?style=for-the-badge&logo=rocket" />
@@ -37,9 +37,9 @@ This gap forces users to:
 - manually perform repetitive actions
 - translate intent into steps
 
-🧠 SIRIUS Vision: The JARVIS Protocol
+🧠 B.U.D.D.Y Vision: The JARVIS Protocol
 
-**BUDDY-MK-67** was born from a single, ambitious vision: to move beyond "chatbots" and build a true **JARVIS-like system**—an autonomous digital entity that doesn't just suggest, but *executes*.
+**B.U.D.D.Y (Mark 67)** was born from a single, ambitious vision: to move beyond "chatbots" and build a true **JARVIS-like system**—an autonomous digital entity that doesn't just suggest, but *executes*.
 
 Inspired by the precision and capability of Tony Stark’s AI, the **Mark series** naming convention reflects our commitment to iterative, high-fidelity engineering. Each "Mark" represents a leap in cognitive orchestration and operational reliability.
 
@@ -56,15 +56,48 @@ A human using a computer can:
 - recover from mistakes
 - complete multi-step tasks
 
-SIRIUS is designed to replicate this behavior through:
+B.U.D.D.Y is designed to replicate this behavior through:
 - structured reasoning (Strategy Layer)
 - deterministic execution (Tool Platform)
 - verification (State Diffing)
 - self-recovery (Replanner Engine)
 
+---
+
+## 🔄 The B.U.D.D.Y Lifecycle: OPEV 2.0
+
+The core of B.U.D.D.Y's intelligence lies in the **Observe-Plan-Execute-Verify (OPEV)** lifecycle. Unlike linear scripts, this is a recursive loop that self-corrects based on real-time feedback.
+
+```mermaid
+graph LR
+    subgraph "Phase 1: Observation"
+        O[Capture State] --> D[DOM Snapshot]
+        O --> U[URL Check]
+        O --> N[Network Analysis]
+    end
+
+    subgraph "Phase 2: Planning"
+        P[Reason Intent] --> T[Select Tools]
+        T --> S[Build Sequence]
+    end
+
+    subgraph "Phase 3: Execution"
+        E[Dispatch Action] --> V[Monitor Events]
+    end
+
+    subgraph "Phase 4: Verification"
+        Ver[Compare State] --> Diff[State Diff]
+        Diff -->|Match| Success[Next Step]
+        Diff -->|Mismatch| Replan[Trigger Replanner]
+    end
+
+    Phase 1 --> Phase 2 --> Phase 3 --> Phase 4
+    Replan --> Phase 2
+```
+
 🎯 Project Objective
 
-The objective of SIRIUS (Buddy MK67) is to build a unified AI operator layer that can:
+The objective of **B.U.D.D.Y (Mark 67)** is to build a unified AI operator layer that can:
 
 1. Understand Intent
 Convert natural language into:
@@ -87,7 +120,7 @@ This ensures:
 - consistent outcomes
 
 4. Adapt to Failure
-Unlike traditional automation, SIRIUS:
+Unlike traditional automation, B.U.D.D.Y:
 - retries intelligently
 - switches strategies
 - replans entire workflows
@@ -95,8 +128,9 @@ Unlike traditional automation, SIRIUS:
 5. Scale to Real Complexity
 From simple tasks:
 - “Search something”
-To complex workflows:
-- “Research → extract → process → store → summarize”
+- “Check emails”
+To complex, JARVIS-level missions:
+- “Find 10 candidates for a role, cross-reference their experience with my database, and draft personalized invites.”
 
 🧩 Why This Matters
 
@@ -107,17 +141,17 @@ Most AI systems today:
 
 But they still depend on humans to execute.
 
-SIRIUS changes that:
+**B.U.D.D.Y changes that:**
 It transforms AI from an assistant into an operator.
 
-🧠 How SIRIUS Gives AI “Human-Like” Power
+🧠 How B.U.D.D.Y Gives AI “Human-Like” Power
 
-SIRIUS does not rely on fragile tricks like screenshots or guesswork. Instead, it uses:
+B.U.D.D.Y does not rely on fragile tricks like screenshots or guesswork. Instead, it uses:
 
-- 🔹 Structured Action System: 400+ deterministic tools, each with defined inputs, outputs, and verification.
-- 🔹 State Awareness: Understands what changed after every action, compares before vs after.
-- 🔹 Self-Healing Execution: Detects failures, recovers automatically, and replans when needed.
-- 🔹 Strategy-Driven Thinking: Doesn’t just pick tools; builds multi-step plans like a human would.
+- 🔹 **Structured Action System**: 400+ deterministic tools, each with defined inputs, outputs, and verification.
+- 🔹 **State Awareness**: Understands what changed after every action, compares before vs after.
+- 🔹 **Self-Healing Execution**: Detects failures, recovers automatically, and replans when needed.
+- 🔹 **Strategy-Driven Thinking**: Doesn’t just pick tools; builds multi-step plans like a human would.
 
 🔥 The Big Shift
 
@@ -126,7 +160,7 @@ To: “AI that actually does it for you”
 
 💡 What This Enables
 
-With SIRIUS, AI can:
+With B.U.D.D.Y, AI can:
 - Apply for jobs automatically
 - Research and summarize data
 - Interact with real websites
@@ -135,9 +169,10 @@ With SIRIUS, AI can:
 
 💥 Core Philosophy
 
-Intelligence is not enough. Real power comes from execution + verification + adaptation.
+Intelligence is not enough. Real power comes from **Execution + Verification + Adaptation**.
 
 🌍 Long-Term Vision
+We are building the future of Human-Computer Interaction (HCI). A future where computers are not tools you use, but agents you collaborate with. B.U.D.D.Y is the first step toward that reality.
 
 ---
 
@@ -146,7 +181,7 @@ Intelligence is not enough. Real power comes from execution + verification + ada
 The **JARVIS Protocol** is not a set of instructions; it is a fundamental shift in how AI interacts with digital environments. It is built on three pillars:
 
 ### 1. Direct Cognitive Abstraction (DCA)
-We skip the "GUI Interpretation" layer whenever possible. Instead of looking at a screen and guessing what a button does, SIRIUS maps the internal state of the application. It speaks the language of the OS and the DOM directly.
+We skip the "GUI Interpretation" layer whenever possible. Instead of looking at a screen and guessing what a button does, B.U.D.D.Y maps the internal state of the application. It speaks the language of the OS and the DOM directly.
 
 ### 2. The Verification Mandate
 An action without verification is a hallucination. The JARVIS Protocol mandates that every state change must be observed, diffed, and validated against the original intent before the next step is even planned.
@@ -158,7 +193,7 @@ Instead of failing when a path is blocked, the protocol anticipates potential bo
 
 ## 🏛 System Architecture: The 4-Layer Intelligence
 
-SIRIUS operates on a modular hierarchy that separates high-level "Reasoning" from low-level "Action."
+B.U.D.D.Y operates on a modular hierarchy that separates high-level "Reasoning" from low-level "Action."
 
 ```mermaid
 graph TD
@@ -187,7 +222,7 @@ graph TD
 The system doesn't start with raw tools. It starts with **Intent Analysis**. When you say "Search for X and compare with Y," the Strategy Layer selects a pre-validated workflow template (e.g., `MULTI_TAB_COMPARE`). This ensures the agent has a "mental map" before the first click.
 
 ### 2. The Workflow Executor (OPEV 2.0)
-The Observe-Plan-Execute-Verify (OPEV) loop is the heartbeat of SIRIUS. 
+The Observe-Plan-Execute-Verify (OPEV) loop is the heartbeat of B.U.D.D.Y. 
 - **Observe**: Capture 4-dimensional state (DOM, URL, Forms, Viewport).
 - **Plan**: Resolve strategy steps into the most reliable tools available.
 - **Execute**: Dispatch deterministic actions with sub-millisecond precision.
@@ -197,7 +232,7 @@ The Observe-Plan-Execute-Verify (OPEV) loop is the heartbeat of SIRIUS.
 
 ## 🌐 The 443-Action Browser Engine
 
-SIRIUS treats the web not as a series of images, but as a structured API. Our registry contains 443 specialized tools categorized into 9 critical domains:
+B.U.D.D.Y treats the web not as a series of images, but as a structured API. Our registry contains 443 specialized tools categorized into 9 critical domains:
 
 | Domain | Action Count | Purpose |
 |---|---|---|
@@ -215,7 +250,7 @@ SIRIUS treats the web not as a series of images, but as a structured API. Our re
 
 ## 🛡️ Self-Healing: The 3-Tier Recovery Logic
 
-Traditional agents fail when a popup appears or a selector changes. SIRIUS heals itself through an escalation protocol:
+Traditional agents fail when a popup appears or a selector changes. B.U.D.D.Y heals itself through an escalation protocol:
 
 ### Tier 1: Intelligent Retry
 - **Mechanism**: Auto-waits, DOM stabilization, and re-selection.
@@ -224,11 +259,11 @@ Traditional agents fail when a popup appears or a selector changes. SIRIUS heals
 
 ### Tier 2: Fallback Strategy
 - **Mechanism**: Switching implementation methods.
-- **Example**: If `browser_dom_click_element` fails due to an overlay, SIRIUS automatically falls back to `browser_js_execute_javascript` to trigger the click event directly on the DOM node.
+- **Example**: If `browser_dom_click_element` fails due to an overlay, B.U.D.D.Y automatically falls back to `browser_js_execute_javascript` to trigger the click event directly on the DOM node.
 
 ### Tier 3: Autonomous Replanning
 - **Mechanism**: The `Replanner` engine.
-- **Action**: If a step is unrecoverable, SIRIUS analyzes the error and modifies the entire workflow:
+- **Action**: If a step is unrecoverable, B.U.D.D.Y analyzes the error and modifies the entire workflow:
   - **INSERT**: Add preparatory steps (e.g., "Scroll Down" or "Dismiss Popup").
   - **REPLACE**: Swap the failed tool for a different logical approach.
   - **REDUCE**: Simplify the goal to save the overall mission.
@@ -237,7 +272,7 @@ Traditional agents fail when a popup appears or a selector changes. SIRIUS heals
 
 ## 🖥️ OS-Web Orchestration: The Unified Workspace
 
-The true power of SIRIUS lies in its ability to cross the boundary between your browser and your local machine.
+The true power of B.U.D.D.Y lies in its ability to cross the boundary between your browser and your local machine.
 
 - **Automated Dev Workflows**: Research a library → Download documentation → Initialize local repo → Implement boilerplate.
 - **Local RAG Integration**: Scrape 50 articles → Vectorize locally in ChromaDB → Answer local queries using web-sourced context.
@@ -254,7 +289,7 @@ The true power of SIRIUS lies in its ability to cross the boundary between your 
 4. "Automate the signup process for a new service using a temporary email provider, verifying the link in the inbox automatically."
 5. "Crawl a documentation site, find all broken internal links, and report them in a structured JSON format."
 6. "Monitor a stock price on Yahoo Finance; if it hits $X, login to my trading platform and place a limit order."
-7. "Extract all comments from a trending Reddit thread, filter by those mentioning 'SIRIUS', and perform sentiment analysis."
+7. "Extract all comments from a trending Reddit thread, filter by those mentioning 'B.U.D.D.Y', and perform sentiment analysis."
 8. "Navigate to a complex SaaS dashboard, find the 'Billing' section, and download the last 3 invoices as PDFs."
 9. "Perform a Google Search for 'best recursive algorithms', visit the first 3 links, and extract all Python code snippets found."
 10. "Login to a forum, find the most popular thread in the 'Security' section, and summarize the main debate in 5 bullet points."
@@ -267,7 +302,7 @@ The true power of SIRIUS lies in its ability to cross the boundary between your 
 17. "Navigate to a weather site, extract the 7-day forecast for 10 different locations, and identify the city with the highest humidity."
 18. "Login to a CRM, find all leads created in the last 24 hours, and send a personalized 'Welcome' message to each."
 19. "Go to a research paper database (e.g., ArXiv), search for 'Autonomous Agents', and download the PDFs of the 3 most cited papers."
-20. "Navigate to a social media site, find all posts with the hashtag #SIRIUS, and extract the usernames and follower counts of the authors."
+20. "Navigate to a social media site, find all posts with the hashtag #BUDDY, and extract the usernames and follower counts of the authors."
 
 ### 🖥️ OS + Web (Level: Operator)
 1. "Research the latest FastAPI best practices, then create a local directory `api_project`, initialize a git repo, and write a production-ready `main.py`."
@@ -295,10 +330,10 @@ The true power of SIRIUS lies in its ability to cross the boundary between your 
 
 ## 🛠 The Tool Registry: 443 Deterministic Actions
 
-SIRIUS does not guess how to interact with the web. Every action is a strictly-typed Python function with built-in validation. Below is a breakdown of the core registry.
+B.U.D.D.Y does not guess how to interact with the web. Every action is a strictly-typed Python function with built-in validation. Below is a breakdown of the core registry.
 
 ### Adding New Tools
-Developers can extend SIRIUS by adding new capabilities to `runtime/browser/capabilities/`.
+Developers can extend B.U.D.D.Y by adding new capabilities to `runtime/browser/capabilities/`.
 1. **Define the Schema**: Use Pydantic to define inputs and outputs.
 2. **Implement logic**: Use the internal `BrowserSession` (Playwright wrapper).
 3. **Register**: Add to `CapabilityRegistry` to make it available to the Planner.
@@ -317,7 +352,7 @@ Developers can extend SIRIUS by adding new capabilities to `runtime/browser/capa
 
 ## 📊 State Verification: The `StateDiffAnalyzer`
 
-Verification is what separates SIRIUS from "looping" agents. Every mutating action is followed by a state snapshot.
+Verification is what separates B.U.D.D.Y from "looping" agents. Every mutating action is followed by a state snapshot.
 
 ```python
 # Conceptual logic of the StateDiffAnalyzer
@@ -333,7 +368,7 @@ def analyze_effect(before, after, intent):
     return verify_against_intent(diff, intent)
 ```
 
-**Why this matters**: If SIRIUS clicks "Submit" but the URL stays the same and a "Required Field" error appears in the DOM, the `StateDiffAnalyzer` detects the failure *even if the browser didn't throw an exception*.
+**Why this matters**: If B.U.D.D.Y clicks "Submit" but the URL stays the same and a "Required Field" error appears in the DOM, the `StateDiffAnalyzer` detects the failure *even if the browser didn't throw an exception*.
 
 ---
 
@@ -357,7 +392,7 @@ Strategies are Level-1 "templates" that guide the agent. Here is the current def
 
 ## 🧪 Testing & Reliability: 81/81 Benchmarks
 
-SIRIUS is battle-tested against the **SIRIUS-Bench-2024** suite, a collection of 81 high-latency, high-entropy web environments.
+B.U.D.D.Y is battle-tested against the **BUDDY-Bench-2024** suite, a collection of 81 high-latency, high-entropy web environments.
 
 | Test Category | Pass Rate | Avg. Time (s) | Self-Healed |
 |---|---|---|---|
@@ -375,10 +410,10 @@ SIRIUS is battle-tested against the **SIRIUS-Bench-2024** suite, a collection of
 ## ❓ Troubleshooting & FAQ
 
 ### Q: Why not just use "Computer Use" or Screenshots?
-**A**: Visual-only agents are prone to hallucinations (clicking on icons that look like buttons but aren't). SIRIUS uses the underlying DOM structure, making it 10x faster and significantly more reliable on non-standard UIs.
+**A**: Visual-only agents are prone to hallucinations (clicking on icons that look like buttons but aren't). B.U.D.D.Y uses the underlying DOM structure, making it 10x faster and significantly more reliable on non-standard UIs.
 
 ### Q: What happens if a site detects "Automation"?
-**A**: SIRIUS includes a `stealth` mode in its `browser_nav` domain. It randomizes user-agents, emulates human mouse curves, and handles "stealthy" navigation to minimize detection.
+**A**: B.U.D.D.Y includes a `stealth` mode in its `browser_nav` domain. It randomizes user-agents, emulates human mouse curves, and handles "stealthy" navigation to minimize detection.
 
 ### Q: Can it run on Mac or Linux?
 **A**: Currently, the **Buddy MK67** core is optimized for Windows (due to the native OS-integration layer). Linux/Mac support is in the roadmap for Q4 2024.
@@ -390,7 +425,7 @@ SIRIUS is battle-tested against the **SIRIUS-Bench-2024** suite, a collection of
 
 ## 🔐 Safety & Governance
 
-SIRIUS implements an enterprise-grade security model for autonomous operation.
+B.U.D.D.Y implements an enterprise-grade security model for autonomous operation.
 
 - **Risk-Tiered Approval**: 
   - **TIER 0**: Passive (Read-only, scraping).
@@ -471,7 +506,7 @@ timeline
 | **Action Registry** | 443 Deterministic Tools |
 | **Response Latency** | < 250ms (Plan to Action) |
 | **State Resolution** | 50ms State-Diff Polling |
-| **Success Rate** | 100% (SIRIUS-Bench-2024) |
+| **Success Rate** | 100% (BUDDY-Bench-2024) |
 | **OS Compatibility** | Windows 10/11 Pro |
 | **Safety Tiering** | 4-Tier Gated Approval System |
 
@@ -481,7 +516,7 @@ timeline
 
 <div align="center">
 
-**SIRIUS (Buddy MK67)**  
+**B.U.D.D.Y (Mark 67)**  
 *The future of work isn't chatting—it's execution.*
 
 [**Twitter**](https://twitter.com/sirius_ai) | [**Discord**](https://discord.gg/sirius) | [**GitHub**](https://github.com/Sirius6907/B.U.D.D.Y-Mark-67)
