@@ -1,6 +1,6 @@
 <div align="center">
 
-![SIRIUS Hero Image](file:///C:/Users/opcha/.gemini/antigravity/brain/f99f0194-35e2-4bfc-997c-50040c5ae414/sirius_buddy_hero_1777817064897.png)
+![SIRIUS Hero Image](assets/hero.png)
 
 # 🌌 SIRIUS (Buddy MK67)
 ### *The Autonomous AI OS Operator*
