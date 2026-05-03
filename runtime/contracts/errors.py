@@ -1,0 +1,2 @@
+class ToolContractError(Exception):
+    pass
