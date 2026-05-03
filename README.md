@@ -70,29 +70,29 @@ The core of B.U.D.D.Y's intelligence lies in the **Observe-Plan-Execute-Verify (
 
 ```mermaid
 graph LR
-    subgraph "Phase 1: Observation"
+    subgraph P1 ["Phase 1: Observation"]
         O[Capture State] --> D[DOM Snapshot]
         O --> U[URL Check]
         O --> N[Network Analysis]
     end
 
-    subgraph "Phase 2: Planning"
+    subgraph P2 ["Phase 2: Planning"]
         P[Reason Intent] --> T[Select Tools]
         T --> S[Build Sequence]
     end
 
-    subgraph "Phase 3: Execution"
+    subgraph P3 ["Phase 3: Execution"]
         E[Dispatch Action] --> V[Monitor Events]
     end
 
-    subgraph "Phase 4: Verification"
+    subgraph P4 ["Phase 4: Verification"]
         Ver[Compare State] --> Diff[State Diff]
         Diff -->|Match| Success[Next Step]
         Diff -->|Mismatch| Replan[Trigger Replanner]
     end
 
-    Phase 1 --> Phase 2 --> Phase 3 --> Phase 4
-    Replan --> Phase 2
+    P1 --> P2 --> P3 --> P4
+    Replan --> P2
 ```
 
 🎯 Project Objective
@@ -200,14 +200,14 @@ graph TD
     User([User Intent]) --> Strategy[Level 1: Strategy Layer]
     Strategy -->|Select Template| Workflow[Level 2: Workflow Executor]
     
-    subgraph "The Intelligence Engine"
+    subgraph Engine ["The Intelligence Engine"]
         Workflow -->|Plan Steps| Planner[Task Planner]
         Planner -->|Recovery Loop| Recovery[3-Tier Recovery Engine]
         Recovery -->|Failure Signal| Replanner[Autonomous Replanner]
         Replanner -->|Re-route| Workflow
     end
 
-    subgraph "Execution Runtimes"
+    subgraph Runtimes ["Execution Runtimes"]
         Recovery -->|Dispatch| Browser[Deterministic Browser]
         Recovery -->|Dispatch| Desktop[Native Windows OS]
         Recovery -->|Dispatch| Kali[Governed Security Lab]
