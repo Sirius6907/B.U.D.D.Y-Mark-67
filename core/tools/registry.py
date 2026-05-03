@@ -17,11 +17,12 @@ Design Principles (from OpenClaw reverse-engineering):
 """
 from __future__ import annotations
 
+import concurrent.futures
 import importlib
 import inspect
 import json
-import time
 import threading
+import time
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any, Callable, Optional
@@ -84,6 +85,13 @@ class ToolSpec:
     fn_name: Optional[str] = None
     requires_speak: bool = False
     timeout: int = 120
+    domain: str = "generic"
+    operation: str = "run"
+    aliases: tuple[str, ...] = ()
+    idempotent: bool = False
+    preconditions: tuple[str, ...] = ()
+    postconditions: tuple[str, ...] = ()
+    verification_mode: str = "not_applicable"
 
     # Runtime stats
     call_count: int = field(default=0, repr=False)
@@ -154,7 +162,12 @@ def _validate_params(schema: dict, params: dict) -> list[str]:
 
         if expected_type and value is not None:
             python_type = TYPE_MAP.get(expected_type)
-            if python_type and not isinstance(value, python_type):
+            if expected_type in {"integer", "number"} and isinstance(value, bool):
+                errors.append(
+                    f"Parameter '{key}' expected type '{expected_type}', "
+                    f"got '{type(value).__name__}'"
+                )
+            elif python_type and not isinstance(value, python_type):
                 errors.append(
                     f"Parameter '{key}' expected type '{expected_type}', "
                     f"got '{type(value).__name__}'"
@@ -168,6 +181,23 @@ def _validate_params(schema: dict, params: dict) -> list[str]:
             )
 
     return errors
+
+
+def _invoke_with_timeout(
+    handler: Callable[..., str],
+    call_kwargs: dict[str, Any],
+    timeout_seconds: float,
+) -> str:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(handler, **call_kwargs)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except concurrent.futures.TimeoutError as exc:
+            future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            raise TimeoutError(
+                f"Tool execution exceeded timeout of {timeout_seconds} seconds."
+            ) from exc
 
 
 # ── Tool Registry (Singleton) ────────────────────────────────────────────────
@@ -290,7 +320,7 @@ class ToolRegistry:
                 if key in accepted or any(param.kind == inspect.Parameter.VAR_KEYWORD for param in accepted.values()):
                     call_kwargs[key] = value
 
-            result = handler(**call_kwargs)
+            result = _invoke_with_timeout(handler, call_kwargs, spec.timeout)
 
             elapsed_ms = (time.time() - start) * 1000
             spec.call_count += 1
@@ -320,6 +350,10 @@ class ToolRegistry:
     def get_tool(self, name: str) -> Optional[ToolSpec]:
         """Get a tool spec by name."""
         return self._tools.get(name)
+
+    def get_spec(self, name: str) -> Optional[ToolSpec]:
+        """Get a tool spec by name."""
+        return self.get_tool(name)
 
     def list_tools(self) -> list[str]:
         """Return all registered tool names."""

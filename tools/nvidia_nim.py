@@ -46,8 +46,8 @@ __all__ = [
 
 # NVIDIA NVCF (Cloud Functions) base URL — NOT the OpenAI-compat LLM endpoint
 NIM_BASE_URL = "https://ai.api.nvidia.com/v1/genai"
-OUTPUT_DIR_IMAGES = Path.home() / "Pictures" / "buddy_gen"
-OUTPUT_DIR_VIDEOS = Path.home() / "Videos" / "buddy_gen"
+OUTPUT_DIR_IMAGES = Path.home() / "Pictures"
+OUTPUT_DIR_VIDEOS = Path.home() / "Videos"
 MAX_RETRIES = 2
 REQUEST_TIMEOUT = 120  # seconds
 

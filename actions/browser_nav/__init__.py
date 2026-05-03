@@ -1,0 +1,36 @@
+from importlib import import_module
+
+for module_name in (
+    "actions.browser_nav.tool_1",
+    "actions.browser_nav.tool_2",
+    "actions.browser_nav.tool_3",
+    "actions.browser_nav.tool_4",
+    "actions.browser_nav.tool_5",
+    "actions.browser_nav.tool_6",
+    "actions.browser_nav.tool_7",
+    "actions.browser_nav.tool_8",
+    "actions.browser_nav.tool_9",
+    "actions.browser_nav.tool_10",
+    "actions.browser_nav.tool_11",
+    "actions.browser_nav.tool_12",
+    "actions.browser_nav.tool_13",
+    "actions.browser_nav.tool_14",
+    "actions.browser_nav.tool_15",
+    "actions.browser_nav.tool_16",
+    "actions.browser_nav.tool_17",
+    "actions.browser_nav.tool_18",
+    "actions.browser_nav.tool_19",
+    "actions.browser_nav.tool_20",
+    "actions.browser_nav.tool_21",
+    "actions.browser_nav.tool_22",
+    "actions.browser_nav.tool_23",
+    "actions.browser_nav.tool_24",
+    "actions.browser_nav.tool_25",
+    "actions.browser_nav.tool_26",
+    "actions.browser_nav.tool_27",
+    "actions.browser_nav.tool_28",
+    "actions.browser_nav.tool_29",
+    "actions.browser_nav.tool_30",
+):
+    import_module(module_name)
+from actions.browser_nav.navigate_gen import *  # noqa: F401,F403

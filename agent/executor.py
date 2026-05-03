@@ -323,7 +323,18 @@ def call_tool(tool: str, parameters: dict, speak: Callable | None = None) -> str
     try:
         from agent.kernel import kernel
         if tool in kernel.tools:
-            logger.info("Dispatching tool via ToolRegistry: %s", tool)
+            spec = kernel.tools.get_spec(tool)
+            capability = kernel.capabilities.get(tool)
+            if spec is not None:
+                logger.info(
+                    "Dispatching structured tool '%s' (%s/%s, capability=%s)",
+                    tool,
+                    spec.domain,
+                    spec.operation,
+                    capability.tool_name if capability is not None else "missing",
+                )
+            else:
+                logger.info("Dispatching structured tool '%s'", tool)
             return kernel.tools.execute(tool, parameters, speak=speak)
     except Exception as exc:
         logger.debug("ToolRegistry dispatch skipped for '%s': %s", tool, exc)

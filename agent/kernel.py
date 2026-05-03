@@ -311,9 +311,11 @@ class KernelOS:
             SubagentRegistry, SubagentSpec, AgentCapability,
         )
         from core.tools.mcp_manager import MCPManager
+        from registries.capability_registry import CapabilityRegistry
 
         self.context = ContextManager(max_chars=12000)
         self.tools = ToolRegistry()
+        self.capabilities = CapabilityRegistry()
         self.agents = SubagentRegistry()
         self.mcp = MCPManager(self.tools)  # On-demand MCP server manager
 
@@ -392,6 +394,7 @@ class KernelOS:
 
         # ── Initialize Tool Registry from legacy actions ──────────────────
         tool_count = self.tools.bulk_register_from_action_registry()
+        self._sync_capabilities()
         logger.info("Tool registry initialized: %d tools loaded.", tool_count)
 
         # ── Set up default context slots ──────────────────────────────────
@@ -469,6 +472,27 @@ class KernelOS:
             "agents": self.agents.get_stats(),
             "mcp": self.mcp.get_status(),
         }
+
+    def _sync_capabilities(self) -> None:
+        from registries.capability_registry import CapabilitySpec
+
+        for tool_name in self.tools.list_tools():
+            spec = self.tools.get_spec(tool_name)
+            if spec is None:
+                continue
+            self.capabilities.register(
+                CapabilitySpec(
+                    tool_name=spec.name,
+                    domain=spec.domain,
+                    operation=spec.operation,
+                    aliases=list(spec.aliases),
+                    risk_level=spec.risk_tier.name,
+                    idempotent=spec.idempotent,
+                    preconditions=list(spec.preconditions),
+                    postconditions=list(spec.postconditions),
+                    verification_mode=spec.verification_mode,
+                )
+            )
 
     async def shutdown(self) -> None:
         """Graceful shutdown — clean up resources."""
